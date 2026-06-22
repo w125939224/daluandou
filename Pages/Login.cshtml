@@ -1,0 +1,142 @@
+﻿@page
+@model daluandou.Pages.LoginModel
+@{
+	Layout = "_Layout";
+	ViewData["Title"] = "用户登录";
+}
+
+<style>
+	.login-card {
+		border: none;
+		box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
+		border-radius: 12px;
+	}
+
+	.login-card-header {
+		background-color: #f8f9fa;
+		border-bottom: 1px solid #eee;
+		border-radius: 12px 12px 0 0 !important;
+	}
+
+		.login-card-header h2 {
+			font-size: 1.8rem;
+			color: #2c3e50;
+			font-weight: 600;
+		}
+
+	.form-control:focus {
+		border-color: #80bdff;
+		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	}
+
+	.btn-primary {
+		background-color: #007bff;
+		border-color: #007bff;
+		padding: 0.6rem 0;
+		font-size: 1rem;
+		border-radius: 8px;
+	}
+
+		.btn-primary:hover {
+			background-color: #0069d9;
+			border-color: #0062cc;
+		}
+
+	.register-link {
+		color: #007bff;
+		text-decoration: none;
+	}
+
+		.register-link:hover {
+			color: #0056b3;
+			text-decoration: underline;
+		}
+
+	.success-alert {
+		border-radius: 8px;
+		border: none;
+		background-color: #d4edda;
+		color: #155724;
+	}
+
+	.error-alert {
+		border-radius: 8px;
+		border: none;
+		background-color: #f8d7da;
+		color: #721c24;
+	}
+</style>
+
+<div class="container mt-5">
+	<div class="row justify-content-center">
+		<div class="col-md-6 col-lg-5">
+
+			<div class="card login-card">
+				<div class="card-header login-card-header">
+					<h2 class="text-center mb-0">用户登录</h2>
+				</div>
+				<div class="card-body p-4">
+
+					@if (TempData["SuccessMessage"] != null)
+					{
+						<div class="alert success-alert mb-4">
+							<i class="bi bi-check-circle-fill me-2"></i>@TempData["SuccessMessage"]
+						</div>
+					}
+
+					@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+					{
+						<div class="alert error-alert mb-4">
+							<i class="bi bi-exclamation-circle-fill me-2"></i>@Model.ErrorMessage
+						</div>
+					}
+
+					<form method="post" novalidate>
+
+						<div class="mb-3">
+							<label asp-for="Input.Username" class="form-label fw-medium">用户名</label>
+							<input asp-for="Input.Username" class="form-control form-control-lg"
+								   placeholder="请输入用户名" autocomplete="username" />
+							<span asp-validation-for="Input.Username" class="text-danger small mt-1 d-block"></span>
+						</div>
+
+						<div class="mb-4">
+							<label asp-for="Input.Password" class="form-label fw-medium">密码</label>
+							<input asp-for="Input.Password" type="password" class="form-control form-control-lg"
+								   placeholder="请输入密码" autocomplete="current-password" />
+							<span asp-validation-for="Input.Password" class="text-danger small mt-1 d-block"></span>
+						</div>
+
+						<button type="submit" class="btn btn-primary w-100 mb-3">
+							<i class="bi bi-box-arrow-in-right me-2"></i>登录
+						</button>
+
+						<div class="text-center">
+							<span class="text-muted">没有账号？</span>
+							<a asp-page="/Register" class="register-link">立即注册</a>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- 引入验证脚本 -->
+@section Scripts {
+	@{
+		await Html.RenderPartialAsync("_ValidationScriptsPartial");
+	}
+	<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			const usernameInput = document.querySelector('[asp-for="Input.Username"]');
+			if (usernameInput) {
+				usernameInput.focus();
+				usernameInput.value = '';
+			}
+			document.querySelector('form').addEventListener('autocomplete', function(e) {
+				e.target.style.backgroundColor = 'white';
+			});
+		});
+	</script>
+}

@@ -1,0 +1,343 @@
+﻿@page
+@model daluandou.Pages.PlayModel
+@{
+    ViewData["Title"] = "游戏大厅";
+}
+
+<style>
+    .title {
+        font-size: 2rem;
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid #007bff;
+        display: inline-block;
+    }
+
+    .notice-card {
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        padding: 2rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        margin-bottom: 2rem;
+    }
+
+        .notice-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        }
+
+        .notice-card p {
+            font-size: 1.05rem;
+            color: #555;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+    .start-btn {
+        padding: 1rem 3rem;
+        font-size: 1.2rem;
+        font-weight: 600;
+        border-radius: 10px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        display: inline-block;
+    }
+
+        .start-btn:hover {
+            background-color: #218838;
+            transform: scale(1.05);
+            color: white;
+            text-decoration: none;
+        }
+
+    .login-card {
+        border: none;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
+        border-radius: 12px;
+    }
+
+    .login-card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #eee;
+        border-radius: 12px 12px 0 0 !important;
+    }
+
+        .login-card-header h2 {
+            font-size: 1.8rem;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+    .form-control:focus {
+        border-color: #80bdff;
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+
+    .btn-primary {
+        background-color: #007bff;
+        border-color: #007bff;
+        padding: 0.6rem 2rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        color: white;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+        .btn-primary:hover {
+            background-color: #0069d9;
+            border-color: #0062cc;
+            color: white;
+            text-decoration: none;
+        }
+
+    .register-link {
+        color: #007bff;
+        text-decoration: none;
+    }
+
+        .register-link:hover {
+            color: #0056b3;
+            text-decoration: underline;
+        }
+
+    .success-alert {
+        border-radius: 8px;
+        border: none;
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .error-alert {
+        border-radius: 8px;
+        border: none;
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
+    .back-link {
+        display: block;
+        text-align: left;
+        margin-bottom: 2.5rem;
+        color: #007bff;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+    .option-card {
+        background-color: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        padding: 2rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        margin-bottom: 2rem;
+        text-align: left;
+    }
+
+        .option-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        }
+
+    .option-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 1rem;
+    }
+
+    .option-desc {
+        font-size: 1.05rem;
+        color: #555;
+        line-height: 1.8;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .form-control {
+        border-radius: 8px;
+        padding: 0.6rem 1rem;
+        border: 1px solid #ced4da;
+        font-size: 1rem;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .divider {
+        text-align: center;
+        margin: 2rem 0;
+        color: #6c757d;
+        font-size: 1.1rem;
+    }
+
+    .room-code-input {
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 1.2rem;
+        text-align: center;
+        font-weight: 600;
+    }
+
+    .btn-success {
+        background-color: #28a745;
+        border-color: #28a745;
+        padding: 0.6rem 2rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        color: white;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+        .btn-success:hover {
+            background-color: #218838;
+            color: white;
+            text-decoration: none;
+        }
+
+    .btn-warning {
+        background-color: #ffc107;
+        border-color: #ffc107;
+        padding: 0.6rem 2rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        color: #212529;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+        .btn-warning:hover {
+            background-color: #e0a800;
+            color: #212529;
+            text-decoration: none;
+        }
+
+    .alert {
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        border-radius: 8px;
+    }
+</style>
+
+<body>
+    <div class="container">
+        <!-- 返回首页单独左对齐，不再和标题挤在同一行 -->
+        <a asp-page="Index" class="back-link">← 返回首页</a>
+
+        <!-- 标题单独居中显示 -->
+        <div class="text-center">
+            <h1 class="title">选择游戏模式</h1>
+        </div>
+
+        @if (TempData["SuccessMessage"] != null)
+        {
+            <div class="alert success-alert">@TempData["SuccessMessage"]</div>
+        }
+
+        @if (TempData["ErrorMessage"] != null)
+        {
+            <div class="alert error-alert">@TempData["ErrorMessage"]</div>
+        }
+
+        <!-- 快速匹配 -->
+        <div class="option-card">
+            <h2 class="option-title">⚡ 快速匹配</h2>
+            <p class="option-desc">
+                自动匹配其他在线玩家，快速开始游戏。系统会为你找到合适的对手，
+                无需等待太久即可进入游戏。
+            </p>
+            <form method="post" asp-page-handler="QuickMatch">
+                <button type="submit" class="btn btn-primary">开始匹配</button>
+            </form>
+        </div>
+
+        <div class="divider">—— 或者 ——</div>
+
+        <!-- 创建自定义房间 -->
+        <div class="option-card">
+            <h2 class="option-title">🏠 创建自定义房间</h2>
+            <p class="option-desc">
+                创建自己的游戏房间，设置游戏参数，邀请好友一起玩。
+                你可以控制房间的公开性和最大玩家人数。
+            </p>
+            <form method="post" asp-page-handler="CreateRoom">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label">最大玩家人数</label>
+                            <select class="form-control" asp-for="CreateRoomModel.MaxPlayers">
+                                <option value="2">2人</option>
+                                <option value="3">3人</option>
+                                <option value="4" selected>4人</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label">房间类型</label>
+                            <select class="form-control" asp-for="CreateRoomModel.IsPublic">
+                                <option value="true" selected>公开房间（可被匹配）</option>
+                                <option value="false">私有房间（仅邀请）</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">棋盘大小</label>
+                    <select class="form-control" asp-for="CreateRoomModel.MaxCount">
+                        <option value="50">小型棋盘 (50格)</option>
+                        <option value="100" selected>标准棋盘 (100格)</option>
+                        <option value="200">大型棋盘 (200格)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success">创建房间</button>
+            </form>
+        </div>
+
+        <!-- 加入自定义房间 -->
+        <div class="option-card">
+            <h2 class="option-title">🔑 加入自定义房间</h2>
+            <p class="option-desc">
+                输入好友分享的房间号，加入他们创建的游戏房间。
+                房间号不区分大小写。
+            </p>
+            <form method="post" asp-page-handler="JoinRoom">
+                <div class="form-group">
+                    <label class="form-label">房间号</label>
+                    <input type="text" class="form-control room-code-input"
+                           asp-for="JoinRoomModel.RoomCode"
+                           placeholder="例如: ABC123"
+                           maxlength="6">
+                </div>
+                <button type="submit" class="btn btn-warning">加入房间</button>
+            </form>
+        </div>
+    </div>
+</body>

@@ -1,0 +1,19 @@
+﻿@page
+@model daluandou.Pages.LogoutModel
+@{
+    Layout = "_Layout";
+    ViewData["Title"] = "退出登录";
+}
+
+<div class="text-center mt-5">
+    <h3>正在退出登录...</h3>
+    <div class="spinner-border text-danger mt-3" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
+<script>
+    setTimeout(function() {
+        window.location.href = "/Login";
+    }, 3000);
+</script>

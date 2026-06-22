@@ -1,0 +1,146 @@
+﻿@page
+@model IndexModel
+@using System.IO
+@{
+	ViewData["Title"] = "个人首页";
+	//string noticePath = System.IO.Path.Combine("/home", "notice.txt");
+	string noticePath = System.IO.Path.Combine("C:\\Users\\w1259\\Desktop", "notice.txt");
+	string noticeContent = "暂无公告";
+
+	try
+	{
+		if (System.IO.File.Exists(noticePath))
+		{
+			noticeContent = System.IO.File.ReadAllText(noticePath) ?? "公告文件为空";
+		}
+	}
+	catch (Exception ex)
+	{
+		noticeContent = $"公告加载失败：{ex.Message}";
+	}
+}
+<style>
+	.title {
+		font-size: 2rem;
+		font-weight: 600;
+		color: #2c3e50;
+		margin-bottom: 1.5rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 2px solid #007bff;
+		display: inline-block;
+	}
+
+	.notice-card {
+		background-color: #fff;
+		border-radius: 12px;
+		box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+		padding: 2rem;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		margin-bottom: 2rem;
+	}
+
+		.notice-card:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+		}
+
+		.notice-card p {
+			font-size: 1.05rem;
+			color: #555;
+			line-height: 1.8;
+			white-space: pre-wrap;
+			word-break: break-word;
+		}
+
+	.start-btn {
+		padding: 1rem 3rem;
+		font-size: 1.2rem;
+		font-weight: 600;
+		border-radius: 10px;
+		background-color: #28a745;
+		color: white;
+		border: none;
+		transition: all 0.3s ease;
+		cursor: pointer;
+		display: inline-block;
+	}
+
+		.start-btn:hover {
+			background-color: #218838;
+			transform: scale(1.05);
+			color: white;
+			text-decoration: none;
+		}
+
+	.login-card {
+		border: none;
+		box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
+		border-radius: 12px;
+	}
+
+	.login-card-header {
+		background-color: #f8f9fa;
+		border-bottom: 1px solid #eee;
+		border-radius: 12px 12px 0 0 !important;
+	}
+
+		.login-card-header h2 {
+			font-size: 1.8rem;
+			color: #2c3e50;
+			font-weight: 600;
+		}
+
+	.form-control:focus {
+		border-color: #80bdff;
+		box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+	}
+
+	.btn-primary {
+		background-color: #007bff;
+		border-color: #007bff;
+		padding: 0.6rem 0;
+		font-size: 1rem;
+		border-radius: 8px;
+	}
+
+		.btn-primary:hover {
+			background-color: #0069d9;
+			border-color: #0062cc;
+		}
+
+	.register-link {
+		color: #007bff;
+		text-decoration: none;
+	}
+
+		.register-link:hover {
+			color: #0056b3;
+			text-decoration: underline;
+		}
+
+	.success-alert {
+		border-radius: 8px;
+		border: none;
+		background-color: #d4edda;
+		color: #155724;
+	}
+
+	.error-alert {
+		border-radius: 8px;
+		border: none;
+		background-color: #f8d7da;
+		color: #721c24;
+	}
+</style>
+
+<body>
+	<div class="container text-center">
+		<h1 class="title">网站公告</h1>
+		<div class="notice-card">
+			<p>@noticeContent</p>
+		</div>
+
+		<!-- 开始按钮 -->
+		<a asp-page="Play" class="start-btn">开始</a>
+	</div>
+</body>

@@ -1,0 +1,895 @@
+﻿@page
+@model daluandou.Pages.ChatRoomModel
+@{
+    Layout = "_Layout";
+    var user = HttpContext.Session.GetString("Username");
+}
+
+<style>
+    html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
+    }
+
+    .chat-container {
+        max-width: 1600px;
+        margin: 20px auto;
+        display: flex;
+        gap: 20px;
+        min-height: calc(100vh - 120px);
+        height: auto;
+        align-items: flex-start;
+        padding: 0 10px;
+    }
+
+    .left {
+        width: 320px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        height: auto;
+    }
+
+    .right {
+        flex: 1;
+        display: flex;
+        gap: 20px;
+        height: auto;
+        align-items: flex-start;
+        min-width: 0;
+    }
+
+    .room-box, .user-box, .chat-box {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px #00000010;
+        padding: 15px;
+        border: none;
+        outline: none;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .room-box {
+        height: auto;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 120px);
+    }
+
+    .chat-box {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: 600px;
+    }
+
+    .user-box {
+        width: 220px;
+        flex-shrink: 0;
+        height: auto;
+        align-self: flex-start;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+    }
+
+    .room-list-container {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto !important;
+        overflow-x: hidden;
+        padding-right: 8px;
+        margin-top: 10px;
+        display: block;
+        max-height: calc(100vh - 260px);
+    }
+
+        .room-list-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .room-list-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        .room-list-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+    .room-item {
+        padding: 10px;
+        cursor: pointer;
+        background: #f1f1f1;
+        margin: 6px 0;
+        border-radius: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+        box-sizing: border-box;
+    }
+
+        .room-item:hover {
+            background: #dceeff;
+        }
+
+        .room-item.my-room {
+            background: #e8f5e9;
+            border-left: 3px solid #28a745;
+        }
+
+    .room-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+    }
+
+    .room-name {
+        font-weight: 500;
+    }
+
+    /* 创建者专属ID徽章样式 */
+    .room-id-badge {
+        font-size: 12px;
+        color: #666;
+        margin-left: 6px;
+        font-weight: normal;
+        background: #e0e0e0;
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    .room-meta {
+        font-size: 12px;
+        color: #888;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .room-lock {
+        color: #666;
+    }
+
+    .room-count {
+        color: #007bff;
+        font-weight: 500;
+    }
+
+    .back-btn {
+        width: 100%;
+        padding: 8px;
+        margin-top: 8px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .message-list {
+        flex: 1;
+        padding: 10px;
+        background: #fafafa;
+        border-radius: 8px;
+        overflow-y: auto;
+        min-height: 500px;
+    }
+
+    .message-item {
+        margin-bottom: 10px;
+    }
+
+    .self-message {
+        text-align: right;
+    }
+
+    .message-username {
+        font-weight: bold;
+        margin-right: 6px;
+    }
+
+    .message-time {
+        font-size: 12px;
+        color: #666;
+    }
+
+    .message-content {
+        display: inline-block;
+        padding: 8px 12px;
+        background: #eef4ff;
+        border-radius: 12px;
+        margin-top: 4px;
+        max-width: 70%;
+        word-wrap: break-word;
+    }
+
+    .self-message .message-content {
+        background: #007bff;
+        color: white;
+    }
+
+    .input-bar {
+        display: flex;
+        margin-top: 10px;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+        .input-bar input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+
+        .input-bar button {
+            padding: 10px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+    .system {
+        text-align: center;
+        color: #666;
+        font-size: 12px;
+        margin: 6px 0;
+    }
+
+    #welcomeMessage {
+        text-align: center;
+        padding: 8px;
+        color: #007bff;
+        font-size: 16px;
+        font-weight: 500;
+        flex-shrink: 0;
+    }
+
+    .del-btn {
+        background: #ff4444;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 12px;
+        padding: 4px 8px;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+        .del-btn:hover {
+            background: #cc0000;
+        }
+
+    .action-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 8px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .action-row {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .action-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        min-width: 0;
+    }
+
+        .action-group input {
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 13px;
+        }
+
+        .action-group button {
+            padding: 6px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: white;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+    .create-btn {
+        background: #007bff;
+    }
+
+        .create-btn:hover {
+            background: #0056b3;
+        }
+
+    .join-btn {
+        background: #17a2b8;
+    }
+
+        .join-btn:hover {
+            background: #138496;
+        }
+
+    /* 房间信息栏样式 */
+    .room-info-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #f8f9fa;
+        border-radius: 6px;
+        margin-top: 10px;
+        font-size: 14px;
+    }
+
+    .room-id-section {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .room-id {
+        font-weight: bold;
+        color: #007bff;
+    }
+
+    .room-id-copyable {
+        cursor: pointer;
+    }
+
+        .room-id-copyable:hover {
+            text-decoration: underline;
+        }
+
+    .room-count-display {
+        color: #666;
+    }
+
+    /* 房间用户列表样式 */
+    .user-item {
+        padding: 6px 8px;
+        margin: 4px 0;
+        border-radius: 4px;
+        background: #f8f9fa;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+        .user-item.self {
+            background: #eef4ff;
+            font-weight: 500;
+        }
+
+    .user-status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #28a745;
+        flex-shrink: 0;
+    }
+
+    /* 密码弹窗样式 */
+    .password-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .password-modal-content {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        width: 300px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+
+        .password-modal-content h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .password-modal-content input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+
+    .password-modal-buttons {
+        display: flex;
+        gap: 10px;
+    }
+
+        .password-modal-buttons button {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+    .btn-cancel {
+        background: #6c757d;
+        color: white;
+    }
+
+    .btn-confirm {
+        background: #007bff;
+        color: white;
+    }
+
+    @@media (max-width: 900px) {
+        .chat-container {
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .left {
+            width: 100%;
+        }
+
+        .right {
+            width: 100%;
+            flex-direction: column;
+        }
+
+        .user-box {
+            width: 100%;
+            max-height: 200px;
+        }
+
+        .room-list-container {
+            max-height: 200px;
+        }
+
+        .chat-box {
+            min-height: 400px;
+        }
+
+        .message-list {
+            min-height: 300px;
+        }
+
+        .room-info-bar {
+            flex-direction: column;
+            gap: 5px;
+        }
+    }</style>
+
+<div class="chat-container">
+    <div class="left">
+        <div class="room-box">
+            <h4>创建房间</h4>
+
+            <div class="action-section">
+                <div class="action-row">
+                    <div class="action-group">
+                        <input type="text" id="roomName" placeholder="输入房间名">
+                        <input type="password" id="roomPassword" placeholder="密码（留空为公开房间）">
+                        <button class="create-btn" onclick="createRoom()">创建房间</button>
+                    </div>
+                </div>
+
+                <div class="action-row">
+                    <div class="action-group">
+                        <input type="number" id="joinRoomId" placeholder="输入房间ID加入私密房间">
+                        <button class="join-btn" onclick="joinById()">加入房间</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="back-btn" onclick="backToHall()">返回聊天大厅</button>
+
+            <h4 style="margin-top:12px;margin-bottom:4px">公开房间</h4>
+            <div class="room-list-container" id="roomList"></div>
+        </div>
+    </div>
+
+    <div class="right">
+        <div class="chat-box">
+            <div id="welcomeMessage"></div>
+
+            <!-- 房间信息栏 -->
+            <div class="room-info-bar" id="roomInfoBar">
+                <div class="room-id-section">
+                    <span id="roomIdLabel">房间号：</span>
+                    <span class="room-id" id="roomIdDisplay" onclick="copyRoomId()">点击复制</span>
+                </div>
+                <div class="room-count-display" id="roomCountDisplay">正在加载人数...</div>
+            </div>
+
+            <div class="message-list" id="messageList"></div>
+            <div class="input-bar">
+                <input type="text" id="msg" placeholder="输入消息...">
+                <button onclick="send()">发送</button>
+            </div>
+        </div>
+
+        <div class="user-box">
+            <h4>当前房间用户 <span id="userCount">0</span></h4>
+            <div id="onlineUsers" style="margin-top:10px;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 密码输入弹窗 -->
+<div class="password-modal" id="passwordModal" style="display:none;">
+    <div class="password-modal-content">
+        <h3>请输入房间密码</h3>
+        <input type="password" id="modalPassword" placeholder="输入密码">
+        <div class="password-modal-buttons">
+            <button class="btn-cancel" onclick="closePasswordModal()">取消</button>
+            <button class="btn-confirm" onclick="confirmPassword()">确认</button>
+        </div>
+    </div>
+</div>
+
+<script src="~/lib/signalr/signalr.min.js"></script>
+<script>
+    const conn = new signalR.HubConnectionBuilder().withUrl("/chatHub").withAutomaticReconnect().build();
+    const currentUser = "@(user)";
+    let roomNameMap = {};
+    let roomPasswordMap = {};
+    let roomCountMap = {}; // 存储所有房间的在线人数
+    let currentRoomId = 0;
+    let pendingRoomId = 0;
+    const HALL_ROOM_ID = 1;
+
+    conn.start().then(() => {
+        document.getElementById("welcomeMessage").textContent = "✅ 连接成功，欢迎进入聊天大厅";
+        loadRooms();
+        join(HALL_ROOM_ID);
+    }).catch(err => {
+        document.getElementById("welcomeMessage").textContent = "❌ 连接失败";
+    });
+
+    conn.on("WelcomeMessage", m => document.getElementById("welcomeMessage").textContent = m);
+    conn.on("ShowError", e => { document.getElementById("welcomeMessage").textContent = "❌ " + e; setTimeout(()=>location.href="/Login",2000); });
+    conn.on("ReceiveMessage", showMsg);
+    conn.on("LoadHistoryMessages", msgs => {
+        document.getElementById("messageList").innerHTML = "";
+        msgs.forEach(m => showMsg(m.senderUsername, m.content, new Date(m.sendTime).toLocaleTimeString()));
+    });
+    conn.on("UpdateRoomOnlineUsers", list => {
+        document.getElementById("userCount").textContent = list.length;
+        document.getElementById("onlineUsers").innerHTML = list.map(u =>
+            `<div class="user-item ${u === currentUser ? 'self' : ''}">
+                <span class="user-status"></span>
+                <span>${u}${u === currentUser ? ' (我)' : ''}</span>
+            </div>`
+        ).join("");
+    });
+    conn.on("UserJoined", u => addSys(u+" 加入了聊天"));
+    conn.on("UserLeft", u => addSys(u+" 离开了聊天"));
+    conn.on("RoomListUpdated", loadRooms);
+    conn.on("JoinRoomFailed", e => {
+        document.getElementById("welcomeMessage").textContent = "❌ " + e;
+        closePasswordModal();
+    });
+    conn.on("RoomOnlineCountUpdated", (roomId, count) => {
+        if (roomId === currentRoomId) {
+            updateRoomCountDisplay(count);
+        }
+    });
+    // 接收所有房间人数更新
+    conn.on("AllRoomsCountUpdated", (roomsCount) => {
+        roomCountMap = roomsCount;
+        updateAllRoomsCountInList();
+    });
+
+    function showMsg(u, m, t) {
+        const el = document.getElementById("messageList");
+        const div = document.createElement("div");
+        div.className = "message-item " + (u === currentUser ? 'self-message' : '');
+        div.innerHTML = `<div><span class='message-username'>${u}</span><span class='message-time'>${t}</span></div><div class='message-content'>${esc(m)}</div>`;
+        el.appendChild(div);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    function addSys(text) {
+        const d = document.createElement("div");
+        d.className = "system";
+        d.textContent = text;
+        document.getElementById("messageList").appendChild(d);
+    }
+
+    function esc(s) {
+        return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+
+    function send() {
+        const m = document.getElementById("msg").value.trim();
+        if(!m) return;
+        conn.invoke("SendMessage", m);
+        document.getElementById("msg").value = "";
+    }
+
+    function loadRooms() {
+        fetch("/ChatRoom?handler=Rooms")
+        .then(r=>r.json())
+        .then(data=>{
+            let html = "";
+            roomNameMap = {};
+            roomPasswordMap = {};
+            roomCountMap = {};
+
+            data.forEach(r => {
+                roomNameMap[r.id] = r.roomName;
+                roomPasswordMap[r.id] = r.hasPassword;
+                roomCountMap[r.id] = r.onlineCount;
+
+                html += `
+                <div class="room-item ${r.isMine ? 'my-room' : ''}" data-room-id="${r.id}">
+                    <div class="room-info" onclick="join(${r.id})">
+                        <div class="room-name">
+                            ${esc(r.roomName)}
+                            <!-- 只有创建者能看到房间ID -->
+                            ${r.isMine ? `<span class="room-id-badge">ID: ${r.id}</span>` : ''}
+                        </div>
+                        <div class="room-meta">
+                            <span>房主: ${r.createUser}</span>
+                            ${r.hasPassword ? '<span class="room-lock">🔒 私密</span>' : '<span>公开</span>'}
+                            <span class="room-count">${r.onlineCount}人在线</span>
+                        </div>
+                    </div>
+                    ${r.isMine && r.id != HALL_ROOM_ID ? '<button class="del-btn" onclick="delRoom('+r.id+')">删除</button>' : ''}
+                </div>`;
+            });
+
+            if (data.length === 0) {
+                html = "<div style='text-align:center;color:#888;padding:20px;'>暂无公开房间</div>";
+            }
+
+            document.getElementById("roomList").innerHTML = html;
+        });
+    }
+
+    // 更新列表中所有房间的人数
+    function updateAllRoomsCountInList() {
+        const roomItems = document.querySelectorAll('.room-item');
+
+        roomItems.forEach(item => {
+            const roomId = parseInt(item.dataset.roomId);
+            const countElement = item.querySelector('.room-count');
+
+            if (countElement && roomCountMap[roomId] !== undefined) {
+                countElement.textContent = `${roomCountMap[roomId]}人在线`;
+            }
+        });
+    }
+
+    function createRoom() {
+        const name = document.getElementById("roomName").value.trim();
+        const password = document.getElementById("roomPassword").value.trim();
+
+        if(!name) {
+            document.getElementById("welcomeMessage").textContent = "❌ 请输入房间名";
+            return;
+        }
+
+        conn.invoke("CreateRoom", name, password || null);
+        document.getElementById("roomName").value = "";
+        document.getElementById("roomPassword").value = "";
+    }
+
+    async function join(roomId) {
+        // 如果房间有密码且不是创建者，弹出密码输入框
+        if (roomId !== HALL_ROOM_ID && roomPasswordMap[roomId]) {
+            const room = await fetch(`/ChatRoom?handler=Rooms`)
+                .then(r=>r.json())
+                .then(data=>data.find(r=>r.id === roomId));
+
+            if (room && !room.isMine) {
+                pendingRoomId = roomId;
+                document.getElementById("passwordModal").style.display = "flex";
+                document.getElementById("modalPassword").value = "";
+                document.getElementById("modalPassword").focus();
+                return;
+            }
+        }
+
+        // 没有密码或者是创建者，直接加入
+        await joinWithPassword(roomId, null);
+    }
+
+    // 修复后的joinById函数：先验证房间是否存在
+    async function joinById() {
+        const roomIdInput = document.getElementById("joinRoomId");
+        const roomId = parseInt(roomIdInput.value.trim());
+
+        if (!roomId || roomId <= 0) {
+            document.getElementById("welcomeMessage").textContent = "❌ 请输入有效的房间号";
+            return;
+        }
+
+        roomIdInput.value = "";
+
+        // 先检查房间是否在公开列表中
+        try {
+            const rooms = await fetch(`/ChatRoom?handler=Rooms`).then(r=>r.json());
+            const room = rooms.find(r=>r.id === roomId);
+
+            if (room) {
+                // 房间在公开列表中
+                if (room.hasPassword && !room.isMine) {
+                    // 有密码且不是创建者，弹窗输入
+                    pendingRoomId = roomId;
+                    document.getElementById("passwordModal").style.display = "flex";
+                    document.getElementById("modalPassword").value = "";
+                    document.getElementById("modalPassword").focus();
+                } else {
+                    // 没有密码或者是创建者，直接加入
+                    await joinWithPassword(roomId, null);
+                }
+            } else {
+                // 房间不在公开列表中，先向服务器验证是否存在
+                document.getElementById("welcomeMessage").textContent = "🔍 正在验证房间号...";
+
+                const result = await conn.invoke("CheckRoomExists", roomId);
+
+                if (!result.exists) {
+                    document.getElementById("welcomeMessage").textContent = "❌ 房间不存在，请检查房间号是否正确";
+                    return;
+                }
+
+                // 房间存在，检查是否需要密码
+                if (result.hasPassword && !result.isMine) {
+                    // 有密码且不是创建者，弹窗输入
+                    pendingRoomId = roomId;
+                    document.getElementById("passwordModal").style.display = "flex";
+                    document.getElementById("modalPassword").value = "";
+                    document.getElementById("modalPassword").focus();
+                } else {
+                    // 没有密码或者是创建者，直接加入
+                    await joinWithPassword(roomId, null);
+                }
+            }
+        } catch (err) {
+            document.getElementById("welcomeMessage").textContent = "❌ 验证房间号失败，请稍后重试";
+            console.error(err);
+        }
+    }
+
+    // 带密码的加入函数
+    async function joinWithPassword(roomId, password) {
+        document.getElementById("messageList").innerHTML = "";
+
+        const roomName = roomNameMap[roomId] || (roomId == HALL_ROOM_ID ? "聊天大厅" : `房间${roomId}`);
+
+        // 先更新UI显示
+        currentRoomId = roomId;
+        const infoBar = document.getElementById("roomInfoBar");
+        const idLabel = document.getElementById("roomIdLabel");
+        const idDisplay = document.getElementById("roomIdDisplay");
+        const countDisplay = document.getElementById("roomCountDisplay");
+
+        infoBar.style.display = "flex";
+
+        if (roomId === HALL_ROOM_ID) {
+            idLabel.textContent = "当前位置：";
+            idDisplay.textContent = "公共大厅";
+            idDisplay.classList.remove("room-id-copyable");
+            countDisplay.textContent = "正在加载大厅人数...";
+        } else {
+            idLabel.textContent = "房间号：";
+            idDisplay.textContent = roomId;
+            idDisplay.classList.add("room-id-copyable");
+            countDisplay.textContent = "正在加载房间人数...";
+        }
+
+        document.getElementById("welcomeMessage").textContent = `✅ 已进入：${roomName}`;
+
+        // 然后调用服务器
+        const success = await conn.invoke("JoinRoom", roomId, password);
+
+        if (!success) {
+            countDisplay.textContent = "加载人数失败";
+        }
+
+        closePasswordModal();
+    }
+
+    // 密码弹窗相关函数
+    function closePasswordModal() {
+        document.getElementById("passwordModal").style.display = "none";
+        pendingRoomId = 0;
+    }
+
+    function confirmPassword() {
+        const password = document.getElementById("modalPassword").value.trim();
+        if (pendingRoomId > 0) {
+            joinWithPassword(pendingRoomId, password || null);
+        }
+    }
+
+    // 更新房间人数显示
+    function updateRoomCountDisplay(count) {
+        const countDisplay = document.getElementById("roomCountDisplay");
+
+        // 防止显示负数
+        count = Math.max(0, count);
+
+        if (currentRoomId === HALL_ROOM_ID) {
+            // 大厅用文字形式显示
+            countDisplay.textContent = `当前大厅有${count}人在线`;
+        } else {
+            // 私人房间显示简单人数
+            countDisplay.textContent = `房间人数：${count}`;
+        }
+    }
+
+    function copyRoomId() {
+        // 只有私人房间才能复制房间号
+        if (currentRoomId === HALL_ROOM_ID) return;
+
+        const roomId = document.getElementById("roomIdDisplay").textContent;
+        navigator.clipboard.writeText(roomId).then(() => {
+            document.getElementById("welcomeMessage").textContent = "✅ 房间号已复制到剪贴板";
+        }).catch(err => {
+            document.getElementById("welcomeMessage").textContent = "❌ 复制失败，请手动复制";
+        });
+    }
+
+    function backToHall() {
+        join(HALL_ROOM_ID);
+    }
+
+    function delRoom(roomId) {
+        if(roomId == HALL_ROOM_ID) return;
+        if(!confirm("确定删除该房间？删除后无法恢复！")) return;
+        conn.invoke("DeleteRoom", roomId);
+
+        if (currentRoomId === roomId) {
+            backToHall();
+        }
+    }
+
+    // 键盘事件
+    document.getElementById("msg").addEventListener("keypress", e=>{ if(e.key==="Enter") send(); });
+    document.getElementById("roomName").addEventListener("keypress", e=>{ if(e.key==="Enter") createRoom(); });
+    document.getElementById("joinRoomId").addEventListener("keypress", e=>{ if(e.key==="Enter") joinById(); });
+    document.getElementById("modalPassword").addEventListener("keypress", e=>{ if(e.key==="Enter") confirmPassword(); });
+
+    // 点击弹窗外部关闭
+    document.getElementById("passwordModal").addEventListener("click", e=>{
+        if(e.target.id === "passwordModal") {
+            closePasswordModal();
+        }
+    });
+</script>
