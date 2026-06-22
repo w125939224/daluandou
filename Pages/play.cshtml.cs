@@ -95,7 +95,6 @@ namespace daluandou.Pages
             {
                 var newRoom = new GameRooms
                 {
-                    // 因为有[Authorize]保护，User.Identity.Name一定不为null
                     RoomOwner = User.Identity.Name,
                     IsGameOver = false,
                     Players = null,

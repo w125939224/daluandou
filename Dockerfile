@@ -2,6 +2,7 @@
 
 # 此阶段用于在快速模式(默认为调试配置)下从 VS 运行时
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+RUN mkdir -p /home/keys && chown -R $APP_UID:$APP_UID /home/keys && chmod 750 /home/keys
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
