@@ -1,0 +1,97 @@
+﻿@page
+@model daluandou.Pages.GameRoomModel
+@{
+    ViewData["Title"] = "房间等待 - " + Model.Room.RoomCode;
+}
+<style>
+    .player-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        justify-content: center;
+    }
+
+    .player-card {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 1.5rem;
+        min-width: 160px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .player-color {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        margin: 0 auto 0.5rem;
+    }
+</style>
+
+<div class="container text-center">
+    <h1 class="title">房间 @Model.Room.RoomCode</h1>
+    <p>状态：<span id="roomStatus">@Model.Room.RoomStatus</span> | 玩家：@Model.Room.CurrentPlayers / @Model.Room.MaxPlayers</p>
+
+    <div class="player-list">
+        @foreach (var p in Model.Players)
+        {
+            <div class="player-card">
+                <div class="player-color" style="background-color:@p.PlayerColor"></div>
+                <strong>@p.PlayerName</strong>
+                @if (p.UserId == Model.Room.RoomOwner || p.PlayerName == Model.Room.RoomOwner)
+                {
+                    <span class="badge bg-warning text-dark">房主</span>
+                }
+            </div>
+        }
+    </div>
+
+    @if (User.Identity?.Name == Model.Room.RoomOwner && Model.Room.CurrentPlayers >= 2)
+    {
+        <form method="post" asp-page-handler="StartGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayerId" class="mt-4">
+            <button type="submit" class="btn btn-success btn-lg">开始游戏</button>
+        </form>
+    }
+    else if (User.Identity?.Name != Model.Room.RoomOwner)
+    {
+        <p class="mt-4 text-muted">等待房主开始游戏...</p>
+    }
+    else
+    {
+        <p class="mt-4 text-muted">至少需要2名玩家才能开始</p>
+    }
+
+    <a asp-page="Index" class="btn btn-outline-secondary mt-3">返回首页</a>
+</div>
+
+@section Scripts {
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script>
+        const roomId = @Model.Room.Id;
+        const currentPlayerId = @Model.CurrentPlayerId;
+
+        // 路径统一大写 H：/gameHub
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/gameHub")
+            .build();
+
+        // 监听其他玩家加入
+        connection.on("UpdateGameRoom", (updatedRoomId) => {
+            if (updatedRoomId === roomId) {
+                location.reload();
+            }
+        });
+
+        // 监听游戏开始
+        connection.on("StartGame", (updatedRoomId, playerId) => {
+            if (updatedRoomId === roomId) {
+                window.location.href = '/Game?roomId=' + roomId + '&playerId=' + currentPlayerId;
+            }
+        });
+
+        connection.start().then(() => {
+            // 调用大写开头的 JoinRoomGroup
+            connection.invoke("JoinRoomGroup", roomId);
+        }).catch(err => console.error(err));
+    </script>
+}

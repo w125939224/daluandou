@@ -22,7 +22,7 @@ namespace daluandou.Models
         public string? Ring { get; set; }
         public string? Armring { get; set; }
 
-        public string? UserName { get; set; }
+        public string? PlayerName { get; set; }
 
         public string? PlayerColor { get; set; }
 

@@ -34,10 +34,6 @@ namespace daluandou.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Id).UseIdentityColumn();
             });
-            // 在你的AppDbContext的OnModelCreating方法中添加
-            //modelBuilder.Entity<ChatRoom>().HasData(
-            //    new ChatRoom { Id = 1, RoomName = "聊天大厅", CreateUser = "system", CreateTime = DateTime.Now }
-            //);
         }
     }
 }

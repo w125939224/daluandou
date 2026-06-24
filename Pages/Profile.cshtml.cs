@@ -1,11 +1,13 @@
-﻿using daluandou.Models;
+﻿using daluandou.Data;
+using daluandou.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
-using daluandou.Data;
 
 namespace daluandou.Pages
 {
+    [Authorize]
     public class ProfileModel : PageModel
     {
         private readonly AppDbContext _context;

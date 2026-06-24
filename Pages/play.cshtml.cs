@@ -4,10 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.SignalR;
 
 namespace daluandou.Pages
 {
@@ -15,12 +13,14 @@ namespace daluandou.Pages
     public class PlayModel : PageModel
     {
         private readonly AppDbContext _context;
-
+        private readonly IHubContext<GameRoomHub> _hubContext;
         private static readonly Random _random = new Random();
 
-        public PlayModel(AppDbContext context)
+        // 唯一的构造函数（注入两个依赖）
+        public PlayModel(AppDbContext context, IHubContext<GameRoomHub> hubContext)
         {
             _context = context;
+            _hubContext = hubContext;
         }
 
         [BindProperty]
@@ -38,7 +38,6 @@ namespace daluandou.Pages
         {
             try
             {
-                // 查找等待中的公开房间
                 var availableRoom = await _context.GameRooms
                     .FirstOrDefaultAsync(r => r.IsPublic &&
                                              r.RoomStatus == "Waiting" &&
@@ -46,15 +45,12 @@ namespace daluandou.Pages
 
                 if (availableRoom != null)
                 {
-                    // 加入找到的房间
                     return await JoinRoomInternal(availableRoom.Id);
                 }
                 else
                 {
-                    // 没有可用房间，创建一个新的公开房间
                     var newRoom = new GameRooms
                     {
-                        // 快速匹配创建的房间房主也设为当前登录用户
                         RoomOwner = User.Identity.Name,
                         IsGameOver = false,
                         Players = null,
@@ -64,14 +60,12 @@ namespace daluandou.Pages
                         RoomStatus = "Waiting",
                         MaxPlayers = 4,
                         CurrentPlayers = 0,
-                        // 使用UTC时间避免时区问题
                         CreatedTime = DateTime.UtcNow
                     };
 
                     _context.GameRooms.Add(newRoom);
                     await _context.SaveChangesAsync();
 
-                    // 加入新创建的房间
                     return await JoinRoomInternal(newRoom.Id);
                 }
             }
@@ -110,7 +104,6 @@ namespace daluandou.Pages
                 _context.GameRooms.Add(newRoom);
                 await _context.SaveChangesAsync();
 
-                // 加入自己创建的房间
                 return await JoinRoomInternal(newRoom.Id);
             }
             catch (Exception ex)
@@ -159,7 +152,6 @@ namespace daluandou.Pages
 
         private async Task<IActionResult> JoinRoomInternal(int roomId)
         {
-            // 获取当前登录用户的ID和用户名
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var username = User.Identity.Name;
 
@@ -183,16 +175,16 @@ namespace daluandou.Pages
 
             if (existingPlayer != null)
             {
-                // 如果用户已经在房间里，直接重定向到游戏页面
-                return RedirectToPage("Game", new { roomId = roomId, playerId = existingPlayer.Id });
+                return RedirectToPage("GameRoom", new { roomId = roomId, playerId = existingPlayer.Id });
             }
 
             var isOwner = room.CurrentPlayers == 0;
+            var playerColor = GetRandomColor();
             var gamePlayer = new GamePlayer
             {
-                // 使用真实的用户ID和用户名，而不是随机生成
                 UserId = userId,
-                UserName = username,
+                PlayerName = username,
+                PlayerColor = playerColor,
                 GameRoomId = room.Id,
                 GameRoom = room.RoomCode,
                 CurrentPosition = 0,
@@ -212,7 +204,6 @@ namespace daluandou.Pages
             _context.GamePlayers.Add(gamePlayer);
             room.CurrentPlayers++;
 
-            // 房主自动成为第一回合玩家
             if (isOwner)
             {
                 room.CurrentTurnPlayerId = gamePlayer.Id;
@@ -220,11 +211,17 @@ namespace daluandou.Pages
 
             await _context.SaveChangesAsync();
 
-            // 重定向到游戏页面
-            return RedirectToPage("Game", new { roomId = roomId, playerId = gamePlayer.Id });
+            await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGameRoom", roomId);
+
+            return RedirectToPage("GameRoom", new { roomId = roomId, playerId = gamePlayer.Id });
         }
 
-        // 生成6位随机房间号（修复Random重复问题）
+        private string GetRandomColor()
+        {
+            string[] colors = { "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD" };
+            return colors[_random.Next(colors.Length)];
+        }
+
         private string GenerateRoomCode()
         {
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

@@ -36,7 +36,12 @@ else
 }
 
 builder.Services.AddSignalR();
-builder.Services.AddRazorPages();
+builder.Services.AddRazorPages(options =>
+{
+    options.Conventions.AuthorizeFolder("/");
+    options.Conventions.AllowAnonymousToPage("/Login");
+    options.Conventions.AllowAnonymousToPage("/Register");
+});
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
@@ -68,7 +73,7 @@ app.UseAuthorization();
 
 
 app.MapHub<ChatHub>("/chatHub");
-//app.MapHub<GameHub>("/gamehub");
+app.MapHub<GameRoomHub>("/gameHub");
 app.MapRazorPages();
 
 app.Run();

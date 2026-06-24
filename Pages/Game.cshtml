@@ -1,5 +1,118 @@
 ﻿@page
 @model daluandou.Pages.GameModel
 @{
+    ViewData["Title"] = "大富翁 - " + Model.Room.RoomCode;
+}
+<style>
+    .board {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 4px;
+        margin: 2rem 0;
+    }
 
+    .cell {
+        background: #f0f0f0;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 80px;
+        font-size: 12px;
+        text-align: center;
+        position: relative;
+    }
+
+    .player-token {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: inline-block;
+        margin: 2px;
+    }
+
+    .status-panel {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        padding: 1.5rem;
+    }
+</style>
+
+<div class="container">
+    <h1 class="title text-center">大富翁 - 房间 @Model.Room.RoomCode</h1>
+    <p class="text-center">
+        当前回合：
+        <span style="color:@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerColor">
+            @Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerName
+        </span>
+    </p>
+
+    <div class="row">
+        <!-- 棋盘 -->
+        <div class="col-md-8">
+            <div class="board">
+                @for (int i = 0; i < Model.Room.MaxCount; i++)
+                {
+                    var pos = i;
+                    var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
+                    <div class="cell">
+                        <strong>@(pos + 1)</strong>
+                        @foreach (var p in playersHere)
+                        {
+                            <span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName"></span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- 玩家状态面板 -->
+        <div class="col-md-4">
+            <div class="status-panel">
+                <h3>玩家状态</h3>
+                @foreach (var p in Model.Players)
+                {
+                    <div class="mb-3 p-2 border rounded">
+                        <h5 style="color:@p.PlayerColor">@p.PlayerName</h5>
+                        <p>位置：@p.CurrentPosition | 金币：@p.Gold</p>
+                        <p>HP：@p.HP / @p.HPMAX | MP：@p.MP / @p.MPMAX</p>
+                        <p>武器：@p.Weapon | 防具：@p.Dress @p.Helmet</p>
+                    </div>
+                }
+            </div>
+
+            @if (Model.IsMyTurn)
+            {
+                <button class="btn btn-primary mt-3 w-100" onclick="rollDice()">🎲 投骰子</button>
+            }
+            else
+            {
+                <p class="text-muted mt-3">等待其他玩家操作...</p>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script>
+        // 骰子逻辑（后续完善）
+        function rollDice() {
+            alert("投骰子功能即将实现");
+        }
+
+        // SignalR 实时更新
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/gamehub")
+            .build();
+
+        connection.on("UpdateRoom", (roomId) => {
+            if (roomId === @Model.Room.Id) {
+                location.reload(); // 简单刷新，后续可局部更新
+            }
+        });
+
+        connection.start().then(() => {
+            connection.invoke("JoinRoomGroup", @Model.Room.Id);
+        });
+    </script>
 }
