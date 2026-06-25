@@ -32,7 +32,7 @@ else
 {
     builder.Services.AddDbContext<AppDbContext>(options =>
         options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn),
-            b => b.SchemaBehavior(MySqlSchemaBehavior.Ignore)));
+            b =>b.SchemaBehavior(MySqlSchemaBehavior.Ignore)));
 }
 
 builder.Services.AddSignalR();
@@ -70,7 +70,6 @@ app.UseRouting();
 app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
-
 
 app.MapHub<ChatHub>("/chatHub");
 app.MapHub<GameRoomHub>("/gameHub");
