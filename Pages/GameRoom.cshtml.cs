@@ -1,4 +1,4 @@
-using daluandou.Data;
+﻿using daluandou.Data;
 using daluandou.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,6 +30,7 @@ namespace daluandou.Pages
     {
         private readonly AppDbContext _context;
         private readonly IHubContext<GameRoomHub> _hubContext;
+        private static readonly string[] AllColors = { "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#F39C12", "#8E44AD" };
 
         public GameRoomModel(AppDbContext context, IHubContext<GameRoomHub> hubContext)
         {
@@ -61,6 +62,7 @@ namespace daluandou.Pages
             return Page();
         }
 
+        // 房主开始游戏
         public async Task<IActionResult> OnPostStartGameAsync(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -68,7 +70,7 @@ namespace daluandou.Pages
             if (room.RoomOwner != User.Identity?.Name) return Forbid();
             if (room.CurrentPlayers < 2)
             {
-                TempData["ErrorMessage"] = "������Ҫ2����Ҳ��ܿ�ʼ��Ϸ";
+                TempData["ErrorMessage"] = "至少需要2名玩家才能开始游戏";
                 return RedirectToPage(new { roomId, playerId });
             }
 
@@ -82,10 +84,86 @@ namespace daluandou.Pages
 
             await _context.SaveChangesAsync();
 
-            // ֪ͨ���������Ϸ��ʼ
+            // 通知所有玩家游戏开始
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("StartGame", roomId, playerId);
 
             return RedirectToPage("Game", new { roomId, playerId });
+        }
+
+        // 离开房间（等待阶段，删除玩家记录）
+        public async Task<IActionResult> OnPostLeaveRoomAsync(int roomId, int playerId)
+        {
+            var player = await _context.GamePlayers.FindAsync(playerId);
+            if (player == null || player.GameRoomId != roomId)
+                return RedirectToPage("Play");
+
+            var room = await _context.GameRooms.FindAsync(roomId);
+            if (room != null)
+            {
+                _context.GamePlayers.Remove(player);
+                room.CurrentPlayers--;
+
+                // 如果房主离开且房间还有人，转移房主
+                if (room.RoomOwner == User.Identity?.Name && room.CurrentPlayers > 0)
+                {
+                    var nextOwner = await _context.GamePlayers
+                        .Where(p => p.GameRoomId == roomId && p.Id != playerId)
+                        .FirstOrDefaultAsync();
+                    if (nextOwner != null)
+                        room.RoomOwner = nextOwner.PlayerName;
+                }
+                await _context.SaveChangesAsync();
+                await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGameRoom", roomId);
+            }
+            return RedirectToPage("Play");
+        }
+
+        // 房主在等待阶段添加机器人
+        public async Task<IActionResult> OnPostAddBotAsync(int roomId, int playerId)
+        {
+            var room = await _context.GameRooms.FindAsync(roomId);
+            if (room == null || room.RoomOwner != User.Identity?.Name || room.CurrentPlayers >= room.MaxPlayers)
+                return Forbid();
+
+            var usedBots = await _context.GamePlayers.CountAsync(p => p.GameRoomId == roomId && p.IsBot);
+            var color = await GetAvailableColor(roomId);
+            var bot = new GamePlayer
+            {
+                PlayerName = $"机器人{usedBots + 1}",
+                PlayerColor = color,
+                GameRoomId = roomId,
+                GameRoom = room.RoomCode,
+                CurrentPosition = 0,
+                Gold = 0,
+                HP = 100,
+                MP = 100,
+                HPMAX = 100,
+                MPMAX = 100,
+                Weapon = "无",
+                Dress = "无",
+                Helmet = "无",
+                Necklace = "无",
+                Ring = "无",
+                Armring = "无",
+                IsBot = true
+            };
+            _context.GamePlayers.Add(bot);
+            room.CurrentPlayers++;
+            if (room.CurrentPlayers == 1) room.CurrentTurnPlayerId = bot.Id;
+
+            await _context.SaveChangesAsync();
+            await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGameRoom", roomId);
+            return RedirectToPage(new { roomId, playerId });
+        }
+
+        // 从可用颜色池中选择尚未使用的颜色
+        private async Task<string> GetAvailableColor(int roomId)
+        {
+            var usedColors = await _context.GamePlayers
+                .Where(p => p.GameRoomId == roomId)
+                .Select(p => p.PlayerColor)
+                .ToListAsync();
+            return AllColors.FirstOrDefault(c => !usedColors.Contains(c)) ?? AllColors[0];
         }
     }
 }

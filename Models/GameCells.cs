@@ -1,12 +1,14 @@
-﻿using Microsoft.AspNetCore.Mvc.RazorPages;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace daluandou.Pages
+namespace daluandou.Models
 {
     public class GameCells
     {
+        [Key]
         public int Id { get; set; }
         public string? EventType { get; set; }
+        public string? EventName { get; set; }
+        public string? Description { get; set; }
+        public int Value { get; set; }
     }
-
 }

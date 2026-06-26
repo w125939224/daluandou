@@ -38,6 +38,10 @@
             <div class="player-card">
                 <div class="player-color" style="background-color:@p.PlayerColor"></div>
                 <strong>@p.PlayerName</strong>
+                @if (p.IsBot)
+                {
+                    <span class="badge bg-secondary">🤖机器人</span>
+                }
                 @if (p.UserId == Model.Room.RoomOwner || p.PlayerName == Model.Room.RoomOwner)
                 {
                     <span class="badge bg-warning text-dark">房主</span>
@@ -46,20 +50,33 @@
         }
     </div>
 
-    @if (User.Identity?.Name == Model.Room.RoomOwner && Model.Room.CurrentPlayers >= 2)
+    @if (User.Identity?.Name == Model.Room.RoomOwner)
     {
-        <form method="post" asp-page-handler="StartGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayerId" class="mt-4">
-            <button type="submit" class="btn btn-success btn-lg">开始游戏</button>
+        @if (Model.Room.CurrentPlayers >= 2)
+        {
+            <form method="post" asp-page-handler="StartGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayerId" class="mt-4">
+                <button type="submit" class="btn btn-success btn-lg">开始游戏</button>
+            </form>
+        }
+        else
+        {
+            <p class="mt-4 text-muted">至少需要2名玩家才能开始</p>
+        }
+        <!-- 添加机器人 -->
+        <form method="post" asp-page-handler="AddBot" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayerId" class="mt-2">
+            <button type="submit" class="btn btn-outline-secondary" @(Model.Room.CurrentPlayers >= Model.Room.MaxPlayers ? "disabled" : "")>添加机器人</button>
         </form>
-    }
-    else if (User.Identity?.Name != Model.Room.RoomOwner)
-    {
-        <p class="mt-4 text-muted">等待房主开始游戏...</p>
     }
     else
     {
-        <p class="mt-4 text-muted">至少需要2名玩家才能开始</p>
+        <p class="mt-4 text-muted">等待房主开始游戏...</p>
     }
+
+    <!-- 离开房间（防止重复确认） -->
+    <form method="post" asp-page-handler="LeaveRoom" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayerId"
+          onsubmit="return confirmLeave(this)" class="mt-2">
+        <button type="submit" class="btn btn-danger" id="leaveRoomBtn">离开房间</button>
+    </form>
 
     <a asp-page="Index" class="btn btn-outline-secondary mt-3">返回首页</a>
 </div>
@@ -69,27 +86,22 @@
     <script>
         const roomId = @Model.Room.Id;
         const currentPlayerId = @Model.CurrentPlayerId;
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/gameHub")
-            .build();
+        const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
 
-        // 监听其他玩家加入
         connection.on("UpdateGameRoom", (updatedRoomId) => {
-            if (updatedRoomId === roomId) {
-                location.reload();
-            }
+            if (updatedRoomId === roomId) location.reload();
         });
-
-        // 监听游戏开始
         connection.on("StartGame", (updatedRoomId, playerId) => {
             if (updatedRoomId === roomId) {
                 window.location.href = '/Game?roomId=' + roomId + '&playerId=' + currentPlayerId;
             }
         });
 
-        connection.start().then(() => {
-            // 调用大写开头的 JoinRoomGroup
-            connection.invoke("JoinRoomGroup", roomId);
-        }).catch(err => console.error(err));
+        connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
+
+        function confirmLeave(form) {
+            document.getElementById("leaveRoomBtn").disabled = true;
+            return confirm("确定要离开房间吗？");
+        }
     </script>
 }

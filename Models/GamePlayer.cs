@@ -28,5 +28,6 @@ namespace daluandou.Models
 
         [ForeignKey("GameRoomId")]
         public GameRooms Room { get; set; } = null!;
+        public bool IsBot { get; set; } = false;
     }
 }
