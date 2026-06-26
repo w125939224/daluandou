@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Pomelo.EntityFrameworkCore.MySql.Infrastructure;
 using daluandou.Data;
 using Microsoft.AspNetCore.DataProtection;
+using MySqlConnector;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +24,12 @@ string sqlServerConn = builder.Configuration.GetConnectionString("DefaultConnect
 string mySqlConn = builder.Configuration.GetConnectionString("MySqlConnection")!;
 bool useSqlServer = TestSqlServerConnection(sqlServerConn);
 
+var mySqlBuilder = new MySqlConnectionStringBuilder(mySqlConn)
+{
+    CharacterSet = "utf8mb4"
+};
+string mySqlConnFixed = mySqlBuilder.ConnectionString;
+
 if (useSqlServer)
 {
     builder.Services.AddDbContext<AppDbContext>(options =>
@@ -31,8 +38,9 @@ if (useSqlServer)
 else
 {
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn),
-            b =>b.SchemaBehavior(MySqlSchemaBehavior.Ignore)));
+        options.UseMySql(mySqlConnFixed, ServerVersion.AutoDetect(mySqlConnFixed),
+            b => b.SchemaBehavior(MySqlSchemaBehavior.Ignore)
+        ));
 }
 
 builder.Services.AddSignalR();

@@ -64,6 +64,7 @@ namespace daluandou.Pages
                     };
 
                     _context.GameRooms.Add(newRoom);
+                    await _context.Database.ExecuteSqlRawAsync("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
                     await _context.SaveChangesAsync();
 
                     return await JoinRoomInternal(newRoom.Id);

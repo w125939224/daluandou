@@ -1,6 +1,7 @@
 ﻿using daluandou.Models;
 using daluandou.Pages;
 using Microsoft.EntityFrameworkCore;
+using Pomelo.EntityFrameworkCore.MySql.Infrastructure; // 新增，提供 CharSet、DelegationModes
 
 namespace daluandou.Data
 {
@@ -19,6 +20,8 @@ namespace daluandou.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.HasCharSet(CharSet.Utf8Mb4, DelegationModes.ApplyToColumns);
+
             modelBuilder.Entity<User>().ToTable("Users");
 
             modelBuilder.Entity<ChatMessage>(entity =>
@@ -34,6 +37,17 @@ namespace daluandou.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Id).UseIdentityColumn();
             });
+        }
+        public override int SaveChanges()
+        {
+            Database.ExecuteSqlRaw("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            Database.ExecuteSqlRaw("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+            return base.SaveChangesAsync(cancellationToken);
         }
     }
 }
