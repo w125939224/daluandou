@@ -69,8 +69,6 @@
     <script>
         const roomId = @Model.Room.Id;
         const currentPlayerId = @Model.CurrentPlayerId;
-
-        // 路径统一大写 H：/gameHub
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/gameHub")
             .build();

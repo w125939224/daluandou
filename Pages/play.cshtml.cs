@@ -1,4 +1,4 @@
-using daluandou.Data;
+ï»¿using daluandou.Data;
 using daluandou.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,7 +16,7 @@ namespace daluandou.Pages
         private readonly IHubContext<GameRoomHub> _hubContext;
         private static readonly Random _random = new Random();
 
-        // Î¨Ò»µÄ¹¹Ôìº¯Êı£¨×¢ÈëÁ½¸öÒÀÀµ£©
+        // å”¯ä¸€çš„æ„é€ å‡½æ•°ï¼ˆæ³¨å…¥ä¸¤ä¸ªä¾èµ–ï¼‰
         public PlayModel(AppDbContext context, IHubContext<GameRoomHub> hubContext)
         {
             _context = context;
@@ -33,7 +33,7 @@ namespace daluandou.Pages
         {
         }
 
-        // ¿ìËÙÆ¥Åä´¦Àí
+        // å¿«é€ŸåŒ¹é…å¤„ç†
         public async Task<IActionResult> OnPostQuickMatch()
         {
             try
@@ -64,7 +64,6 @@ namespace daluandou.Pages
                     };
 
                     _context.GameRooms.Add(newRoom);
-                    await _context.Database.ExecuteSqlRawAsync("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
                     await _context.SaveChangesAsync();
 
                     return await JoinRoomInternal(newRoom.Id);
@@ -72,17 +71,17 @@ namespace daluandou.Pages
             }
             catch (Exception ex)
             {
-                TempData["ErrorMessage"] = $"Æ¥ÅäÊ§°Ü£º{ex.Message}";
+                TempData["ErrorMessage"] = $"åŒ¹é…å¤±è´¥ï¼š{ex.Message}";
                 return RedirectToPage();
             }
         }
 
-        // ´´½¨·¿¼ä´¦Àí
+        // åˆ›å»ºæˆ¿é—´å¤„ç†
         public async Task<IActionResult> OnPostCreateRoom()
         {
             if (!ModelState.IsValid)
             {
-                TempData["ErrorMessage"] = "Çë¼ì²éÊäÈëĞÅÏ¢";
+                TempData["ErrorMessage"] = "è¯·æ£€æŸ¥è¾“å…¥ä¿¡æ¯";
                 return RedirectToPage();
             }
 
@@ -109,17 +108,17 @@ namespace daluandou.Pages
             }
             catch (Exception ex)
             {
-                TempData["ErrorMessage"] = $"´´½¨·¿¼äÊ§°Ü£º{ex.Message}";
+                TempData["ErrorMessage"] = $"åˆ›å»ºæˆ¿é—´å¤±è´¥ï¼š{ex.Message}";
                 return RedirectToPage();
             }
         }
 
-        // ¼ÓÈë·¿¼ä´¦Àí
+        // åŠ å…¥æˆ¿é—´å¤„ç†
         public async Task<IActionResult> OnPostJoinRoom()
         {
             if (!ModelState.IsValid || string.IsNullOrWhiteSpace(JoinRoomModel.RoomCode))
             {
-                TempData["ErrorMessage"] = "ÇëÊäÈëÓĞĞ§µÄ·¿¼äºÅ";
+                TempData["ErrorMessage"] = "è¯·è¾“å…¥æœ‰æ•ˆçš„æˆ¿é—´å·";
                 return RedirectToPage();
             }
 
@@ -132,13 +131,13 @@ namespace daluandou.Pages
 
                 if (room == null)
                 {
-                    TempData["ErrorMessage"] = "·¿¼ä²»´æÔÚ»òÓÎÏ·ÒÑ¿ªÊ¼";
+                    TempData["ErrorMessage"] = "æˆ¿é—´ä¸å­˜åœ¨æˆ–æ¸¸æˆå·²å¼€å§‹";
                     return RedirectToPage();
                 }
 
                 if (room.CurrentPlayers >= room.MaxPlayers)
                 {
-                    TempData["ErrorMessage"] = "·¿¼äÒÑÂú";
+                    TempData["ErrorMessage"] = "æˆ¿é—´å·²æ»¡";
                     return RedirectToPage();
                 }
 
@@ -146,7 +145,7 @@ namespace daluandou.Pages
             }
             catch (Exception ex)
             {
-                TempData["ErrorMessage"] = $"¼ÓÈë·¿¼äÊ§°Ü£º{ex.Message}";
+                TempData["ErrorMessage"] = $"åŠ å…¥æˆ¿é—´å¤±è´¥ï¼š{ex.Message}";
                 return RedirectToPage();
             }
         }
@@ -160,17 +159,17 @@ namespace daluandou.Pages
 
             if (room == null)
             {
-                TempData["ErrorMessage"] = "·¿¼ä²»´æÔÚ";
+                TempData["ErrorMessage"] = "æˆ¿é—´ä¸å­˜åœ¨";
                 return RedirectToPage();
             }
 
             if (room.CurrentPlayers >= room.MaxPlayers)
             {
-                TempData["ErrorMessage"] = "·¿¼äÒÑÂú";
+                TempData["ErrorMessage"] = "æˆ¿é—´å·²æ»¡";
                 return RedirectToPage();
             }
 
-            // ·ÀÖ¹Í¬Ò»¸öÓÃ»§¶à´Î¼ÓÈëÍ¬Ò»¸ö·¿¼ä
+            // é˜²æ­¢åŒä¸€ä¸ªç”¨æˆ·å¤šæ¬¡åŠ å…¥åŒä¸€ä¸ªæˆ¿é—´
             var existingPlayer = await _context.GamePlayers
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.GameRoomId == roomId);
 
@@ -194,12 +193,12 @@ namespace daluandou.Pages
                 MP = 100,
                 HPMAX = 100,
                 MPMAX = 100,
-                Weapon = "ÎŞ",
-                Dress = "ÎŞ",
-                Helmet = "ÎŞ",
-                Necklace = "ÎŞ",
-                Ring = "ÎŞ",
-                Armring = "ÎŞ"
+                Weapon = "æ— ",
+                Dress = "æ— ",
+                Helmet = "æ— ",
+                Necklace = "æ— ",
+                Ring = "æ— ",
+                Armring = "æ— "
             };
 
             _context.GamePlayers.Add(gamePlayer);
@@ -231,7 +230,7 @@ namespace daluandou.Pages
         }
     }
 
-    // ´´½¨·¿¼äÊäÈëÄ£ĞÍ
+    // åˆ›å»ºæˆ¿é—´è¾“å…¥æ¨¡å‹
     public class CreateRoomInputModel
     {
         public int MaxPlayers { get; set; } = 4;
@@ -239,7 +238,7 @@ namespace daluandou.Pages
         public int MaxCount { get; set; } = 100;
     }
 
-    // ¼ÓÈë·¿¼äÊäÈëÄ£ĞÍ
+    // åŠ å…¥æˆ¿é—´è¾“å…¥æ¨¡å‹
     public class JoinRoomInputModel
     {
         public string RoomCode { get; set; } = string.Empty;

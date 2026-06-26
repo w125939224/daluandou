@@ -1,7 +1,7 @@
 ﻿using daluandou.Models;
 using daluandou.Pages;
 using Microsoft.EntityFrameworkCore;
-using Pomelo.EntityFrameworkCore.MySql.Infrastructure; // 新增，提供 CharSet、DelegationModes
+using Pomelo.EntityFrameworkCore.MySql.Infrastructure;
 
 namespace daluandou.Data
 {
@@ -40,13 +40,11 @@ namespace daluandou.Data
         }
         public override int SaveChanges()
         {
-            Database.ExecuteSqlRaw("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
             return base.SaveChanges();
         }
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            Database.ExecuteSqlRaw("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
             return base.SaveChangesAsync(cancellationToken);
         }
     }

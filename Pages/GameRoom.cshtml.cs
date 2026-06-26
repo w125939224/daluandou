@@ -14,7 +14,6 @@ namespace daluandou.Pages
 {
     public class GameRoomHub : Hub
     {
-        // 统一使用 JoinRoomGroup（首字母大写）
         public async Task JoinRoomGroup(int roomId)
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, $"game_{roomId}");
@@ -83,7 +82,7 @@ namespace daluandou.Pages
 
             await _context.SaveChangesAsync();
 
-            // 通知所有玩家游戏开始（事件名保持大写开头）
+            // 通知所有玩家游戏开始
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("StartGame", roomId, playerId);
 
             return RedirectToPage("Game", new { roomId, playerId });
