@@ -1,7 +1,7 @@
 ﻿@page
 @model daluandou.Pages.GameModel
 @{
-    ViewData["Title"] = "大富翁 - " + Model.Room.RoomCode;
+    ViewData["Title"] = "daluandou - " + Model.Room.RoomCode;
 }
 <style>
     .board {
@@ -50,15 +50,42 @@
         }
     </p>
 
+    <!-- 操作提示消息 -->
+    @if (!string.IsNullOrEmpty(Model.ActionMessage))
+    {
+        <div class="alert alert-info text-center">@Model.ActionMessage</div>
+    }
+
     <div class="row">
         <div class="col-md-8">
             <div class="board">
-                @for (int i = 0; i < Model.Room.MaxCount; i++)
+                @{
+                    int maxCount = (int)(Model.Room.MaxCount ?? 100); // 关键修复点
+                }
+                @foreach (var i in Enumerable.Range(0, maxCount))
                 {
                     var pos = i;
                     var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
-                    <div class="cell">
+                    Models.GameCells cellEvent = null;
+                    Model.BoardEvents.TryGetValue(pos, out cellEvent);
+                    <div class="cell" title="@cellEvent?.Description">
                         <strong>@(pos + 1)</strong>
+                        @if (cellEvent != null)
+                        {
+                            string icon = cellEvent.EventType switch
+                            {
+                                "Gold" => "💰",
+                                "HP" => "❤️",
+                                "MP" => "🔮",
+                                "Teleport" => "🚀",
+                                "Steal" => "🤝",
+                                "Trap" => "⛔",
+                                "Random" => "❓",
+                                "Equipment" => "⚔️",
+                                _ => "·"
+                            };
+                            <div>@icon</div>
+                        }
                         @foreach (var p in playersHere)
                         {
                             <span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName @(p.IsBot ? "(机器人)" : "")"></span>
@@ -109,7 +136,7 @@
                 <p class="text-muted mt-3">等待其他玩家操作...</p>
             }
 
-            <!-- 离开游戏按钮（直接退出，不保留机器人） -->
+            <!-- 离开游戏按钮 -->
             <form method="post" asp-page-handler="LeaveGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id"
                   onsubmit="return confirmLeaveGame(this)" class="mt-2">
                 <button type="submit" class="btn btn-danger w-100" id="leaveGameBtn">离开游戏</button>
@@ -137,7 +164,7 @@
         function confirmLeaveGame(form) {
             if (confirm("确定要离开游戏吗？")) {
                 document.getElementById("leaveGameBtn").disabled = true;
-                leaving = true;   // 禁止 SignalR 刷新，让服务器重定向处理
+                leaving = true;
                 return true;
             }
             return false;
