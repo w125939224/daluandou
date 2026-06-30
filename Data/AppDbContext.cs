@@ -16,7 +16,7 @@ namespace daluandou.Data
         public DbSet<GameCells> GameCells { get; set; }
         public DbSet<GameRooms> GameRooms { get; set; }
         public DbSet<GamePlayer> GamePlayers { get; set; }
-        public DbSet<GameLog> GameLogs { get; set; }
+        public DbSet<GameLogs> GameLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

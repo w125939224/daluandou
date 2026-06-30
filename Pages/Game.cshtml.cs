@@ -18,7 +18,6 @@ namespace daluandou.Pages
         private readonly AppDbContext _context;
         private readonly IHubContext<GameRoomHub> _hubContext;
 
-        // 装备池
         private static readonly List<EquipmentDef> EquipmentPool = new()
         {
             new EquipmentDef("木剑",     "Weapon"),
@@ -53,8 +52,8 @@ namespace daluandou.Pages
         public bool IsMyTurn { get; set; }
         public Dictionary<int, GameCells> BoardEvents { get; set; } = new();
 
-        [TempData]
-        public string ActionMessage { get; set; }
+        // 最近的游戏日志（用于视图展示）
+        public List<GameLogs> RecentLogs { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int roomId, int playerId)
         {
@@ -71,7 +70,14 @@ namespace daluandou.Pages
 
             IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot;
 
-            // 基于房间 ID 的固定随机种子，确保每次进入棋盘事件一致
+            // 读取最近 20 条日志
+            RecentLogs = await _context.GameLogs
+                .Where(l => l.GameRoomId == roomId)
+                .OrderByDescending(l => l.CreatedTime)
+                .Take(20)
+                .ToListAsync();
+
+            // 初始化棋盘事件
             var allEvents = await _context.GameCells.ToListAsync();
             if (allEvents.Any())
             {
@@ -95,21 +101,20 @@ namespace daluandou.Pages
             if (player == null || player.GameRoomId != roomId) return NotFound();
             if (room.CurrentTurnPlayerId != playerId || player.IsBot) return Forbid();
 
-            // 执行回合并生成描述信息
-            string message = await ExecutePlayerTurn(room, player);
-            ActionMessage = message;
-
+            // 真人回合执行（内含日志记录）
+            await ExecutePlayerTurn(room, player);
             await _context.SaveChangesAsync();
 
-            // 切换回合并自动处理机器人
+            // 机器人回合
             await AdvanceTurn(room);
             await _context.SaveChangesAsync();
 
+            // 通知所有玩家刷新（日志已在数据库）
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
             return RedirectToPage(new { roomId, playerId });
         }
 
-        // 离开游戏（保留原有逻辑）
+        // 离开游戏
         public async Task<IActionResult> OnPostLeaveGameAsync(int roomId, int playerId)
         {
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -130,69 +135,98 @@ namespace daluandou.Pages
             else
             {
                 if (room.CurrentTurnPlayerId == playerId)
-                {
                     await AdvanceTurn(room);
-                }
                 if (room.RoomOwner == User.Identity?.Name)
                 {
                     var nextOwner = await _context.GamePlayers
                         .Where(p => p.GameRoomId == roomId && !p.IsBot && p.Id != playerId)
                         .FirstOrDefaultAsync();
-                    if (nextOwner != null)
-                        room.RoomOwner = nextOwner.PlayerName;
-                    else
-                    {
-                        var anyPlayer = await _context.GamePlayers
-                            .Where(p => p.GameRoomId == roomId && p.Id != playerId)
-                            .FirstOrDefaultAsync();
-                        if (anyPlayer != null) room.RoomOwner = anyPlayer.PlayerName;
-                    }
+                    if (nextOwner != null) room.RoomOwner = nextOwner.PlayerName;
                 }
             }
+
+            // 记录离开日志
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = roomId,
+                PlayerId = playerId,
+                PlayerName = player.PlayerName,
+                LogType = "Leave",
+                Message = $"{player.PlayerName} 离开了游戏。",
+                CreatedTime = DateTime.UtcNow
+            });
 
             await _context.SaveChangesAsync();
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
             return RedirectToPage("Play");
         }
 
-        // 执行单个玩家回合，返回行动描述
-        private async Task<string> ExecutePlayerTurn(GameRooms room, GamePlayer player)
+        // 执行单个玩家回合，并将日志添加到上下文
+        private async Task ExecutePlayerTurn(GameRooms room, GamePlayer player)
         {
             int dice = new Random().Next(1, 7);
-            int maxCount = room.MaxCount ?? 100;      // 处理可空类型
-            int oldPos = player.CurrentPosition ?? 0;
+            int maxCount = room.MaxCount ?? 100;
+            int oldPos = player.CurrentPosition ?? 1;
             int newPos = (oldPos + dice) % maxCount;
             player.CurrentPosition = newPos;
 
-            string message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos + 1}。";
+            // 记录移动日志
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = room.Id,
+                PlayerId = player.Id,
+                PlayerName = player.PlayerName,
+                LogType = "Move",
+                Message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
+                CreatedTime = DateTime.UtcNow
+            });
 
             var allPlayers = await _context.GamePlayers
                 .Where(p => p.GameRoomId == room.Id)
                 .ToListAsync();
 
+            // 触发格子事件并记录日志
             if (BoardEvents.TryGetValue(newPos, out var evt))
             {
                 string eventMsg = ApplyEvent(room, player, evt, allPlayers, maxCount);
                 if (!string.IsNullOrEmpty(eventMsg))
-                    message += " " + eventMsg;
+                {
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = player.Id,
+                        PlayerName = player.PlayerName,
+                        LogType = "Event",
+                        Message = eventMsg,
+                        CreatedTime = DateTime.UtcNow
+                    });
+                }
 
-                // 传送事件后递归处理新格子事件
+                // 传送事件递归处理
                 if (evt.EventType == "Teleport")
                 {
-                    int teleportedPos = player.CurrentPosition ?? newPos;
+                    int teleportedPos = player.CurrentPosition ?? newPos - 1;
                     if (BoardEvents.TryGetValue(teleportedPos, out var newEvt))
                     {
                         string additionalMsg = ApplyEvent(room, player, newEvt, allPlayers, maxCount);
                         if (!string.IsNullOrEmpty(additionalMsg))
-                            message += " 然后" + additionalMsg;
+                        {
+                            _context.GameLogs.Add(new GameLogs
+                            {
+                                GameRoomId = room.Id,
+                                PlayerId = player.Id,
+                                PlayerName = player.PlayerName,
+                                LogType = "Event",
+                                Message = additionalMsg,
+                                CreatedTime = DateTime.UtcNow
+                            });
+                        }
                     }
                 }
             }
-
-            return message;
         }
 
-        // 应用事件效果，返回描述文本
+        // 应用事件效果，返回事件描述文本
         private string ApplyEvent(GameRooms room, GamePlayer player, GameCells evt, List<GamePlayer> allPlayers, int maxCount)
         {
             var rnd = new Random();
@@ -215,9 +249,9 @@ namespace daluandou.Pages
 
                 case "Teleport":
                     int shift = evt.Value;
-                    int oldPos = player.CurrentPosition ?? 0;
-                    player.CurrentPosition = (oldPos + shift + room.MaxCount) % room.MaxCount;
-                    return $"被传送到了格子 {player.CurrentPosition + 1}。";
+                    int oldPos = player.CurrentPosition ?? 1;
+                    player.CurrentPosition = (oldPos - 1 + shift + maxCount) % maxCount + 1;
+                    return $"被传送到了格子 {player.CurrentPosition}。";
 
                 case "Steal":
                     int stealBase = evt.Value;
@@ -233,7 +267,6 @@ namespace daluandou.Pages
                     return $"偷取了 {totalStolen} 金币。";
 
                 case "Trap":
-                    // 暂未实现禁锢效果，只返回描述
                     return "踩到了陷阱，下回合无法行动。";
 
                 case "Random":
@@ -259,7 +292,7 @@ namespace daluandou.Pages
                     else
                     {
                         int s = rnd.Next(-5, 6);
-                        player.CurrentPosition = (player.CurrentPosition + s + room.MaxCount) % room.MaxCount;
+                        player.CurrentPosition = (player.CurrentPosition - 1 + s + maxCount) % maxCount + 1;
                         return $"随机移动 {s} 格。";
                     }
 
@@ -281,7 +314,7 @@ namespace daluandou.Pages
             }
         }
 
-        // 切换回合，自动处理所有连续的机器人回合
+        // 切换回合并自动处理机器人回合（日志已在 ExecutePlayerTurn 中添加）
         private async Task AdvanceTurn(GameRooms room)
         {
             var players = await _context.GamePlayers
@@ -301,7 +334,6 @@ namespace daluandou.Pages
 
                 if (!players[nextIdx].IsBot) break;
 
-                // 机器人回合自动执行（不生成对外提示，如有需要可记录日志）
                 await ExecutePlayerTurn(room, players[nextIdx]);
                 await _context.SaveChangesAsync();
             }
