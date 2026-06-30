@@ -63,7 +63,7 @@
         <!-- 左侧：棋盘 + 日志 -->
         <div class="col-md-8">
             <!-- 游戏日志 -->
-            <div class="game-log">
+            <div class="game-log" id="logContainer" style="max-height:200px; overflow-y:auto; background:#f8f9fa; border-radius:8px; padding:10px; margin-bottom:1rem;">
                 <h5>📜 游戏日志</h5>
                 @foreach (var log in Model.RecentLogs)
                 {
@@ -177,6 +177,12 @@
 
         connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
 
+        document.addEventListener("DOMContentLoaded", function() {
+            var logContainer = document.getElementById("logContainer");
+            if (logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        });
         function confirmLeaveGame(form) {
             if (confirm("确定要离开游戏吗？")) {
                 document.getElementById("leaveGameBtn").disabled = true;

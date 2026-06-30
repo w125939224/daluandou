@@ -82,10 +82,10 @@ namespace daluandou.Pages
 
             IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot;
 
-            // 读取最近20条日志
             RecentLogs = await _context.GameLogs
                 .Where(l => l.GameRoomId == roomId)
-                .OrderByDescending(l => l.CreatedTime)
+                .OrderBy(l => l.CreatedTime)
+                .ThenBy(l => l.Id)
                 .ToListAsync();
 
             // 初始化棋盘事件
