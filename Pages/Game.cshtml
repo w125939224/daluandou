@@ -144,8 +144,8 @@
 
             @if (Model.IsMyTurn)
             {
-                <form method="post" asp-page-handler="RollDice" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id" class="mt-3">
-                    <button type="submit" class="btn btn-primary w-100">🎲 投骰子</button>
+                <form method="post" asp-page-handler="RollDice" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id" class="mt-3" onsubmit="return rollDice(this)">
+                    <button type="submit" class="btn btn-primary w-100" id="rollDiceBtn">🎲 投骰子</button>
                 </form>
             }
             else if (!Model.CurrentPlayer.IsBot)
@@ -183,6 +183,14 @@
                 logContainer.scrollTop = logContainer.scrollHeight;
             }
         });
+                function rollDice(form) {
+            const btn = document.getElementById("rollDiceBtn");
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = "⏳ 掷骰中...";
+            }
+            return true;
+        }
         function confirmLeaveGame(form) {
             if (confirm("确定要离开游戏吗？")) {
                 document.getElementById("leaveGameBtn").disabled = true;
