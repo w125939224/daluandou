@@ -1,191 +1,189 @@
 ﻿@page
 @model daluandou.Pages.GameModel
 @{
-	ViewData["Title"] = "daluandou - " + Model.Room.RoomCode;
+    ViewData["Title"] = "daluandou - " + Model.Room.RoomCode;
 }
 <style>
-	.board {
-		display: grid;
-		grid-template-columns: repeat(10, 1fr);
-		gap: 4px;
-		margin: 2rem 0;
-	}
+    .board {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 4px;
+        margin: 2rem 0;
+    }
 
-	.cell {
-		background: #f0f0f0;
-		border-radius: 8px;
-		padding: 10px;
-		min-height: 80px;
-		font-size: 12px;
-		text-align: center;
-		position: relative;
-	}
+    .cell {
+        background: #f0f0f0;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 80px;
+        font-size: 12px;
+        text-align: center;
+        position: relative;
+    }
 
-	.player-token {
-		width: 20px;
-		height: 20px;
-		border-radius: 50%;
-		display: inline-block;
-		margin: 2px;
-	}
+    .player-token {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: inline-block;
+        margin: 2px;
+    }
 
-	.status-panel {
-		background: #fff;
-		border-radius: 12px;
-		box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-		padding: 1.5rem;
-	}
+    .status-panel {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        padding: 1.5rem;
+    }
 
-	.game-log {
-		max-height: 200px;
-		overflow-y: auto;
-		background: #f8f9fa;
-		border-radius: 8px;
-		padding: 10px;
-		margin-bottom: 1rem;
-	}
+    .game-log {
+        max-height: 200px;
+        overflow-y: auto;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 1rem;
+    }
 </style>
 
 <div class="container">
-	<h1 class="title text-center">大富翁 - 房间 @Model.Room.RoomCode</h1>
-	<p class="text-center">
-		当前回合：
-		<span style="color:@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerColor">
-			@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerName
-		</span>
-		@if (Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.IsBot == true)
-		{
-			<span class="badge bg-secondary">🤖机器人</span>
-		}
-	</p>
+    <h1 class="title text-center">大富翁 - 房间 @Model.Room.RoomCode</h1>
+    <p class="text-center">
+        当前回合：
+        <span style="color:@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerColor">
+            @Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerName
+        </span>
+        @if (Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.IsBot == true)
+        {
+            <span class="badge bg-secondary">🤖机器人</span>
+        }
+    </p>
 
-	<div class="row">
-		<!-- 左侧：棋盘 + 日志 -->
-		<div class="col-md-8">
-			<!-- 游戏日志 -->
-			<div class="game-log">
-				<h5>📜 游戏日志</h5>
-				@foreach (var log in Model.RecentLogs)
-				{
-					<div class="small text-muted">
-						<strong>@log.PlayerName</strong> - @log.Message
-						<span class="float-end">@log.CreatedTime.ToString("HH:mm:ss")</span>
-					</div>
-				}
-			</div>
+    <div class="row">
+        <!-- 左侧：棋盘 + 日志 -->
+        <div class="col-md-8">
+            <!-- 游戏日志 -->
+            <div class="game-log">
+                <h5>📜 游戏日志</h5>
+                @foreach (var log in Model.RecentLogs)
+                {
+                    <div class="small text-muted">
+                        <strong>@log.PlayerName</strong> - @log.Message
+                        <span class="float-end">@log.CreatedTime.ToString("HH:mm:ss")</span>
+                    </div>
+                }
+            </div>
 
-			<!-- 棋盘 -->
-			<div class="board">
-				@{
-					int maxCount = (int)(Model.Room.MaxCount ?? 100);
-				}
-				@foreach (var i in Enumerable.Range(1, maxCount))
-				{
-					var pos = i;
-					var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
-					Models.GameCells cellEvent = null;
-					Model.BoardEvents.TryGetValue(pos - 1, out cellEvent);
-					<div class="cell" title="@cellEvent?.Description">
-						<strong>@(pos)</strong>
-						@if (cellEvent != null)
-						{
-							string icon = cellEvent.EventType switch
-							{
-								"Gold" => "💰",
-								"HP" => "❤️",
-								"MP" => "🔮",
-								"Teleport" => "🚀",
-								"Steal" => "🤝",
-								"Trap" => "⛔",
-								"Random" => "❓",
-								"Equipment" => "⚔️",
-								_ => "·"
-							};
-							<div>@icon</div>
-						}
-						@foreach (var p in playersHere)
-						{
-							<span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName @(p.IsBot ? "(机器人)" : "")"></span>
-						}
-					</div>
-				}
-			</div>
-		</div>
+            <!-- 棋盘（1-based 格子号） -->
+            <div class="board">
+                @{
+                    int maxCount = (int)(Model.Room.MaxCount ?? 100);
+                }
+                @for (int pos = 1; pos <= maxCount; pos++)
+                {
+                    var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
+                    Models.GameCells cellEvent = null;
+                    Model.BoardEvents.TryGetValue(pos - 1, out cellEvent); // 事件索引 0-based
+                                                                           <div class="cell" title="@cellEvent?.Description">
+                                                                               <strong>@pos</strong>
+                        @if (cellEvent != null)
+                        {
+                            string icon = cellEvent.EventType switch
+                            {
+                                "Gold" => "💰",
+                                "HP" => "❤️",
+                                "MP" => "🔮",
+                                "Teleport" => "🚀",
+                                "Steal" => "🤝",
+                                "Trap" => "⛔",
+                                "Random" => "❓",
+                                "Equipment" => "⚔️",
+                                _ => "·"
+                            };
+                            <div>@icon</div>
+                        }
+                        @foreach (var p in playersHere)
+                        {
+                            <span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName @(p.IsBot ? "(机器人)" : "")"></span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
 
-		<!-- 右侧：玩家状态与操作 -->
-		<div class="col-md-4">
-			<div class="status-panel">
-				<h3>玩家状态</h3>
-				<div class="row">
-					@foreach (var p in Model.Players)
-					{
-						<div class="col-6 mb-2">
-							<div class="card" style="border-left: 4px solid @p.PlayerColor;">
-								<div class="card-body p-2">
-									<h6 style="color:@p.PlayerColor; margin:0;">
-										@p.PlayerName
-										@if (p.IsBot)
-										{
-											<span class="badge bg-secondary">🤖</span>
-										}
-									</h6>
-									<div style="font-size:0.9rem;">
-										<span>💰@p.Gold</span> |
-										<span>📍@p.CurrentPosition</span><br />
-										<span>❤️@p.HP/@p.HPMAX</span> |
-										<span>🔮@p.MP/@p.MPMAX</span><br />
-										<small>⚔️@p.Weapon 👕@p.Dress 🛡️@p.Helmet</small>
-									</div>
-								</div>
-							</div>
-						</div>
-					}
-				</div>
-			</div>
+        <!-- 右侧：玩家状态与操作 -->
+        <div class="col-md-4">
+            <div class="status-panel">
+                <h3>玩家状态</h3>
+                <div class="row">
+                    @foreach (var p in Model.Players)
+                    {
+                        <div class="col-6 mb-2">
+                            <div class="card" style="border-left: 4px solid @p.PlayerColor;">
+                                <div class="card-body p-2">
+                                    <h6 style="color:@p.PlayerColor; margin:0;">
+                                        @p.PlayerName
+                                        @if (p.IsBot)
+                                        {
+                                            <span class="badge bg-secondary">🤖</span>
+                                        }
+                                    </h6>
+                                    <div style="font-size:0.9rem;">
+                                        <span>💰@p.Gold</span> |
+                                        <span>📍@p.CurrentPosition</span><br />
+                                        <span>❤️@p.HP/@p.HPMAX</span> |
+                                        <span>🔮@p.MP/@p.MPMAX</span><br />
+                                        <small>⚔️@p.Weapon 👕@p.Dress 🛡️@p.Helmet</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
 
-			@if (Model.IsMyTurn)
-			{
-				<form method="post" asp-page-handler="RollDice" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id" class="mt-3">
-					<button type="submit" class="btn btn-primary w-100">🎲 投骰子</button>
-				</form>
-			}
-			else if (!Model.CurrentPlayer.IsBot)
-			{
-				<p class="text-muted mt-3">等待其他玩家操作...</p>
-			}
+            @if (Model.IsMyTurn)
+            {
+                <form method="post" asp-page-handler="RollDice" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id" class="mt-3">
+                    <button type="submit" class="btn btn-primary w-100">🎲 投骰子</button>
+                </form>
+            }
+            else if (!Model.CurrentPlayer.IsBot)
+            {
+                <p class="text-muted mt-3">等待其他玩家操作...</p>
+            }
 
-			<!-- 离开游戏按钮 -->
-			<form method="post" asp-page-handler="LeaveGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id"
-				  onsubmit="return confirmLeaveGame(this)" class="mt-2">
-				<button type="submit" class="btn btn-danger w-100" id="leaveGameBtn">离开游戏</button>
-			</form>
-		</div>
-	</div>
+            <form method="post" asp-page-handler="LeaveGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id"
+                  onsubmit="return confirmLeaveGame(this)" class="mt-2">
+                <button type="submit" class="btn btn-danger w-100" id="leaveGameBtn">离开游戏</button>
+            </form>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
-	<script src="~/lib/signalr/signalr.min.js"></script>
-	<script>
-		const roomId = @Model.Room.Id;
-		let leaving = false;
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script>
+        const roomId = @Model.Room.Id;
+        let leaving = false;
 
-		const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
+        const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
 
-		connection.on("UpdateGame", (updatedRoomId) => {
-			if (updatedRoomId === roomId && !leaving) {
-				location.reload();
-			}
-		});
+        connection.on("UpdateGame", (updatedRoomId) => {
+            if (updatedRoomId === roomId && !leaving) {
+                location.reload();
+            }
+        });
 
-		connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
+        connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
 
-		function confirmLeaveGame(form) {
-			if (confirm("确定要离开游戏吗？")) {
-				document.getElementById("leaveGameBtn").disabled = true;
-				leaving = true;
-				return true;
-			}
-			return false;
-		}
-	</script>
+        function confirmLeaveGame(form) {
+            if (confirm("确定要离开游戏吗？")) {
+                document.getElementById("leaveGameBtn").disabled = true;
+                leaving = true;
+                return true;
+            }
+            return false;
+        }
+    </script>
 }
