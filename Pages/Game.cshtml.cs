@@ -80,7 +80,8 @@ namespace daluandou.Pages
             CurrentPlayer = Players.FirstOrDefault(p => p.Id == playerId);
             if (CurrentPlayer == null) return Forbid();
 
-            IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot;
+            // ★ 陷阱判定：只有非机器人，当前回合是自己的玩家ID，且没有陷阱状态才能操作
+            IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot && CurrentPlayer.TrapTurns == 0;
 
             RecentLogs = await _context.GameLogs
                 .Where(l => l.GameRoomId == roomId)
@@ -88,9 +89,7 @@ namespace daluandou.Pages
                 .ThenBy(l => l.Id)
                 .ToListAsync();
 
-            // 初始化棋盘事件
             await InitBoardEvents(roomId);
-
             return Page();
         }
 
@@ -107,11 +106,13 @@ namespace daluandou.Pages
             if (player == null || player.GameRoomId != roomId) return NotFound();
             if (room.CurrentTurnPlayerId != playerId || player.IsBot) return Forbid();
 
-            // 执行真人回合（内部记录日志）
+            // ★ 额外安全检查：如果玩家仍有陷阱，禁止行动
+            if (player.TrapTurns > 0)
+                return Forbid();
+
             await ExecutePlayerTurn(room, player);
             await _context.SaveChangesAsync();
 
-            // 处理机器人回合
             await AdvanceTurn(room);
             await _context.SaveChangesAsync();
 
@@ -150,7 +151,6 @@ namespace daluandou.Pages
                 }
             }
 
-            // 记录离开日志（PlayerId 使用 Users 表 Id）
             int? uid = int.TryParse(player.UserId, out var id) ? id : null;
             _context.GameLogs.Add(new GameLogs
             {
@@ -170,16 +170,30 @@ namespace daluandou.Pages
         // 执行单个玩家回合，记录移动和事件日志
         private async Task ExecutePlayerTurn(GameRooms room, GamePlayer player)
         {
+            int? uid = int.TryParse(player.UserId, out var userId) ? userId : null;
+
+            // ★ 陷阱回合处理：如果有陷阱，跳过行动并减少计数
+            if (player.TrapTurns > 0)
+            {
+                player.TrapTurns--;
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = uid,
+                    PlayerName = player.PlayerName,
+                    LogType = "Trap",
+                    Message = $"{player.PlayerName} 因陷阱无法行动。",
+                    CreatedTime = DateTime.UtcNow
+                });
+                return; // 结束回合，不移动
+            }
+
             int dice = new Random().Next(1, 7);
             int maxCount = room.MaxCount ?? 100;
-            int oldPos = player.CurrentPosition ?? 1;        // 1-based
+            int oldPos = player.CurrentPosition ?? 1;
             int newPos = (oldPos - 1 + dice) % maxCount + 1;
             player.CurrentPosition = newPos;
 
-            // 解析玩家在 Users 表中的 Id
-            int? uid = int.TryParse(player.UserId, out var userId) ? userId : null;
-
-            // ---------- 记录移动日志 ----------
             _context.GameLogs.Add(new GameLogs
             {
                 GameRoomId = room.Id,
@@ -190,18 +204,13 @@ namespace daluandou.Pages
                 CreatedTime = DateTime.UtcNow
             });
 
-            // 加载当前房间所有玩家，供事件使用
-            var allPlayers = await _context.GamePlayers
-                .Where(p => p.GameRoomId == room.Id)
-                .ToListAsync();
+            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
 
-            // 触发格子事件（BoardEvents 索引为 0-based）
             if (BoardEvents.TryGetValue(newPos - 1, out var evt))
             {
                 string eventMsg = ApplyEvent(room, player, evt, allPlayers, maxCount);
                 if (!string.IsNullOrEmpty(eventMsg))
                 {
-                    // ---------- 记录事件日志 ----------
                     _context.GameLogs.Add(new GameLogs
                     {
                         GameRoomId = room.Id,
@@ -213,7 +222,6 @@ namespace daluandou.Pages
                     });
                 }
 
-                // 如果是传送事件，继续处理新格子的事件
                 if (evt.EventType == "Teleport")
                 {
                     int teleportedPos = player.CurrentPosition ?? newPos;
@@ -237,7 +245,7 @@ namespace daluandou.Pages
             }
         }
 
-        // 应用事件效果，返回事件描述字符串（不负责日志记录）
+        // 应用事件效果，返回事件描述字符串
         private string ApplyEvent(GameRooms room, GamePlayer player, GameCells evt, List<GamePlayer> allPlayers, int maxCount)
         {
             var rnd = new Random();
@@ -278,6 +286,7 @@ namespace daluandou.Pages
                     return $"偷取了 {totalStolen} 金币。";
 
                 case "Trap":
+                    player.TrapTurns = 1;   // ★ 设置陷阱状态，下回合跳过
                     return "踩到了陷阱，下回合无法行动。";
 
                 case "Random":
@@ -325,7 +334,7 @@ namespace daluandou.Pages
             }
         }
 
-        // 切换回合，自动处理机器人回合
+        // 切换回合，自动处理机器人回合以及陷阱玩家自动跳过
         private async Task AdvanceTurn(GameRooms room)
         {
             var players = await _context.GamePlayers
@@ -333,7 +342,9 @@ namespace daluandou.Pages
                 .OrderBy(p => p.Id)
                 .ToListAsync();
 
-            for (int i = 0; i < players.Count * 2; i++)
+            int maxLoops = players.Count * 3; // 防止死循环
+
+            for (int i = 0; i < maxLoops; i++)
             {
                 var cur = players.FirstOrDefault(p => p.Id == room.CurrentTurnPlayerId);
                 if (cur == null) break;
@@ -343,11 +354,27 @@ namespace daluandou.Pages
                 room.CurrentTurnPlayerId = players[nextIdx].Id;
                 await _context.SaveChangesAsync();
 
-                if (!players[nextIdx].IsBot) break;
+                var nextPlayer = players[nextIdx];
 
-                // 机器人回合（内部记录日志）
-                await ExecutePlayerTurn(room, players[nextIdx]);
-                await _context.SaveChangesAsync();
+                // 如果是机器人，正常执行回合
+                if (nextPlayer.IsBot)
+                {
+                    await ExecutePlayerTurn(room, nextPlayer);
+                    await _context.SaveChangesAsync();
+                    continue; // 继续下一位
+                }
+
+                // 如果是真人但有陷阱状态，自动跳过并记录日志
+                if (!nextPlayer.IsBot && nextPlayer.TrapTurns > 0)
+                {
+                    await ExecutePlayerTurn(room, nextPlayer); // 会触发陷阱跳过日志
+                    await _context.SaveChangesAsync();
+                    // 跳过此玩家后继续寻找下一个可操作的真人
+                    continue;
+                }
+
+                // 否则是真人且无陷阱，停止循环，等待玩家操作
+                break;
             }
         }
     }
