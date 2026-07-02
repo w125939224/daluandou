@@ -11,6 +11,8 @@ namespace daluandou.Models
         public string? GameRoom { get; set; }
         public int? CurrentPosition { get; set; }
         public int? Gold { get; set; }
+        public int? DC { get; set; }
+        public int? AC { get; set; }
         public int? HP { get; set; }
         public int? MP { get; set; }
         public int? HPMAX { get; set; }

@@ -1,229 +1,388 @@
 ﻿@page
 @model daluandou.Pages.GameModel
 @{
-	ViewData["Title"] = "daluandou - " + Model.Room.RoomCode;
+    ViewData["Title"] = "daluandou - " + Model.Room.RoomCode;
 }
 <style>
-	.board {
-		display: grid;
-		grid-template-columns: repeat(10, 1fr);
-		gap: 4px;
-		margin: 2rem 0;
-	}
+    .board {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 4px;
+        margin: 2rem 0;
+    }
 
-	.cell {
-		background: #f0f0f0;
-		border-radius: 8px;
-		padding: 10px;
-		min-height: 80px;
-		font-size: 12px;
-		text-align: center;
-		position: relative;
-	}
+    .cell {
+        background: #f0f0f0;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 80px;
+        font-size: 12px;
+        text-align: center;
+        position: relative;
+    }
 
-	.player-token {
-		width: 20px;
-		height: 20px;
-		border-radius: 50%;
-		display: inline-block;
-		margin: 2px;
-	}
+    .player-token {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: inline-block;
+        margin: 2px;
+    }
 
-	.status-panel {
-		background: #fff;
-		border-radius: 12px;
-		box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-		padding: 1.5rem;
-	}
+    .status-panel {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        padding: 1.5rem;
+    }
 
-	.game-log {
-		max-height: 200px;
-		overflow-y: auto;
-		background: #f8f9fa;
-		border-radius: 8px;
-		padding: 10px;
-		margin-bottom: 1rem;
-	}
+    .game-log {
+        max-height: 200px;
+        overflow-y: auto;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 1rem;
+    }
+
+    /* 弹窗样式 */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        text-align: center;
+        min-width: 300px;
+    }
+
+        .modal-content h3 {
+            margin-bottom: 1rem;
+        }
+
+        .modal-content p {
+            margin: 0.5rem 0;
+        }
+
+        .modal-content button {
+            margin: 0.5rem;
+            padding: 0.5rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+    .btn-replace {
+        background: #28a745;
+        color: white;
+    }
+
+    .btn-keep {
+        background: #6c757d;
+        color: white;
+    }
+
+    /* 玩家卡片样式优化 */
+    .player-card-body {
+        font-size: 0.75rem;
+        line-height: 1.3;
+    }
+
+        .player-card-body span, .player-card-body small {
+            white-space: nowrap;
+        }
+
+    .equip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 2px;
+    }
+
+    .equip-item {
+        background: #e9ecef;
+        border-radius: 4px;
+        padding: 1px 4px;
+        font-size: 0.7rem;
+    }
 </style>
 
 <div class="container">
-	<h1 class="title text-center">大富翁 - 房间 @Model.Room.RoomCode</h1>
-	<p class="text-center">
-		当前回合：
-		<span style="color:@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerColor">
-			@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerName
-		</span>
-		@if (Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.IsBot == true)
-		{
-			<span class="badge bg-secondary">🤖机器人</span>
-		}
-	</p>
+    <h1 class="title text-center">大富翁 - 房间 @Model.Room.RoomCode</h1>
+    <p class="text-center">
+        当前回合：
+        <span style="color:@Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerColor">
+            @Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.PlayerName
+        </span>
+        @if (Model.Players.FirstOrDefault(p => p.Id == Model.Room.CurrentTurnPlayerId)?.IsBot == true)
+        {
+            <span class="badge bg-secondary">🤖机器人</span>
+        }
+    </p>
 
-	<div class="row">
-		<!-- 左侧：棋盘 + 日志 -->
-		<div class="col-md-8">
-			<!-- 游戏日志 -->
-			<div class="game-log" id="logContainer" style="max-height:200px; overflow-y:auto; background:#f8f9fa; border-radius:8px; padding:10px; margin-bottom:1rem;">
-				<h5>📜 游戏日志</h5>
-				@foreach (var log in Model.RecentLogs)
-				{
-					<div class="small text-muted">
-						<strong>@log.PlayerName</strong> - @log.Message
-						<span class="float-end">@log.CreatedTime.ToString("HH:mm:ss")</span>
-					</div>
-				}
-			</div>
+    <div class="row">
+        <div class="col-md-8">
+            <!-- 游戏日志 -->
+            <div class="game-log" id="logContainer">
+                <h5>📜 游戏日志</h5>
+                @foreach (var log in Model.RecentLogs)
+                {
+                    <div class="small text-muted">
+                        <strong>@log.PlayerName</strong> - @log.Message
+                        <span class="float-end">@log.CreatedTime.ToString("HH:mm:ss")</span>
+                    </div>
+                }
+            </div>
 
-			<!-- 棋盘（1-based 格子号） -->
-			<div class="board">
-				@{
-					int maxCount = (int)(Model.Room.MaxCount ?? 100);
-				}
-				@for (int pos = 1; pos <= maxCount; pos++)
-				{
-					var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
-					Models.GameCells cellEvent = null;
-					Model.BoardEvents.TryGetValue(pos - 1, out cellEvent); // 事件索引 0-based
-														   				<div class="cell" title="@cellEvent?.Description">
-														   					<strong>@pos</strong>
-						@if (cellEvent != null)
-						{
-							string icon = cellEvent.EventType switch
-							{
-								"Gold" => "💰",
-								"HP" => "❤️",
-								"MP" => "🔮",
-								"Teleport" => "🚀",
-								"Steal" => "🤝",
-								"Trap" => "⛔",
-								"Random" => "❓",
-								"Equipment" => "⚔️",
-								_ => "·"
-							};
-							<div>@icon</div>
-						}
-						@foreach (var p in playersHere)
-						{
-							<span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName @(p.IsBot ? "(机器人)" : "")"></span>
-						}
-					</div>
-				}
-			</div>
-		</div>
+            <!-- 棋盘 -->
+            <div class="board">
+                @{
+                    int maxCount = (int)(Model.Room.MaxCount ?? 100);
+                }
+                @for (int pos = 1; pos <= maxCount; pos++)
+                {
+                    var playersHere = Model.Players.Where(p => p.CurrentPosition == pos);
+                    Models.GameCells cellEvent = null;
+                    Model.BoardEvents.TryGetValue(pos - 1, out cellEvent);
+                    <div class="cell" title="@cellEvent?.Description">
+                        <strong>@pos</strong>
+                        @if (cellEvent != null)
+                        {
+                            string icon = cellEvent.EventType switch
+                            {
+                                "Gold" => "💰",
+                                "HP" => "❤️",
+                                "MP" => "🔮",
+                                "Teleport" => "🚀",
+                                "Steal" => "🤝",
+                                "Trap" => "⛔",
+                                "Random" => "❓",
+                                "Weapon" => "⚔️",
+                                "Dress" => "👕",
+                                "Helmet" => "🛡️",
+                                "Ring" => "💍",
+                                "Armring" => "🩹",
+                                "Necklace" => "📿",
+                                "LoseEquipment" => "🗑️",
+                                _ => "·"
+                            };
+                            <div>@icon</div>
+                        }
+                        @foreach (var p in playersHere)
+                        {
+                            <span class="player-token" style="background-color:@p.PlayerColor" title="@p.PlayerName @(p.IsBot ? "(机器人)" : "")"></span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
 
-		<!-- 右侧：玩家状态与操作 -->
-		<div class="col-md-4">
-			<div class="status-panel">
-				<h3>玩家状态</h3>
-				<div class="row">
-					@foreach (var p in Model.Players)
-					{
-						<div class="col-6 mb-2">
-							<div class="card" style="border-left: 4px solid @p.PlayerColor;">
-								<div class="card-body p-2">
-									<h6 style="color:@p.PlayerColor; margin:0;">
-										@p.PlayerName
-										@if (p.IsBot)
-										{
-											<span class="badge bg-secondary">🤖</span>
-										}
-									</h6>
-									<div style="font-size:0.9rem;">
-										<span>💰@p.Gold</span> |
-										<span>📍@p.CurrentPosition</span><br />
-										<span>❤️@p.HP/@p.HPMAX</span> |
-										<span>🔮@p.MP/@p.MPMAX</span><br />
-										<small>⚔️@p.Weapon 👕@p.Dress 🛡️@p.Helmet</small>
-									</div>
-								</div>
-							</div>
-						</div>
-					}
-				</div>
-			</div>
+        <!-- 右侧状态面板 -->
+        <div class="col-md-4">
+            <div class="status-panel">
+                <h3>玩家状态</h3>
+                <div class="row">
+                    @foreach (var p in Model.Players)
+                    {
+                        <div class="col-6 mb-2">
+                            <div class="card" style="border-left: 4px solid @p.PlayerColor;">
+                                <div class="card-body p-2 player-card-body">
+                                    <h6 style="color:@p.PlayerColor; margin:0; font-size:0.85rem;">
+                                        @p.PlayerName
+                                        @if (p.IsBot)
+                                        {
+                                            <span class="badge bg-secondary">🤖</span>
+                                        }
+                                    </h6>
+                                    <div>
+                                        <span>💰@p.Gold</span> |
+                                        <span>📍@p.CurrentPosition</span>
+                                    </div>
+                                    <div>
+                                        <span>❤️@p.HP/@p.HPMAX</span> |
+                                        <span>🔮@p.MP/@p.MPMAX</span>
+                                    </div>
+                                    <div>
+                                        <span>⚔️@p.DC</span> |
+                                        <span>🛡️@p.AC</span>
+                                    </div>
+                                    <div class="equip-row">
+                                        <span class="equip-item" title="武器">⚔️@p.Weapon</span>
+                                        <span class="equip-item" title="衣服">👕@p.Dress</span>
+                                        <span class="equip-item" title="头盔">🛡️@p.Helmet</span>
+                                        <span class="equip-item" title="项链">📿@p.Necklace</span>
+                                        <span class="equip-item" title="戒指">💍@p.Ring</span>
+                                        <span class="equip-item" title="护腕">🩹@p.Armring</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
 
-			@if (Model.IsMyTurn)
-			{
-				<form method="post" asp-page-handler="RollDice" id="rollDiceForm"
-					  asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id" class="mt-3">
-					<button type="button" class="btn btn-primary w-100" id="rollDiceBtn"
-							@(Model.IsMyTurn ? "" : "disabled")>
-						🎲 投骰子
-					</button>
-				</form>
-			}
-			else if (!Model.CurrentPlayer.IsBot)
-			{
-				<p class="text-muted mt-3">等待其他玩家操作...</p>
-			}
+            @if (Model.IsMyTurn)
+            {
+                <button type="button" class="btn btn-primary w-100 mt-3" id="rollDiceBtn">🎲 投骰子</button>
+            }
+            else if (!Model.CurrentPlayer.IsBot)
+            {
+                <p class="text-muted mt-3">等待其他玩家操作...</p>
+            }
 
-			<form method="post" asp-page-handler="LeaveGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id"
-				  onsubmit="return confirmLeaveGame(this)" class="mt-2">
-				<button type="submit" class="btn btn-danger w-100" id="leaveGameBtn">离开游戏</button>
-			</form>
-		</div>
-	</div>
+            <!-- 离开游戏按钮 -->
+            <form method="post" asp-page-handler="LeaveGame" asp-route-roomId="@Model.Room.Id" asp-route-playerId="@Model.CurrentPlayer.Id"
+                  onsubmit="return confirmLeaveGame(this)" class="mt-2">
+                <button type="submit" class="btn btn-danger w-100" id="leaveGameBtn">离开游戏</button>
+            </form>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
-	<script src="~/lib/signalr/signalr.min.js"></script>
-	<script>
-		const roomId = @Model.Room.Id;
-		let leaving = false;
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script>
+        const roomId = @Model.Room.Id;
+        const currentPlayerId = @Model.CurrentPlayer.Id;
+        let isRolling = false;
 
-		const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
+        // SignalR
+        const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
+        connection.on("UpdateGame", (updatedRoomId) => {
+            if (updatedRoomId === roomId) location.reload();
+        });
+        connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
 
-		connection.on("UpdateGame", (updatedRoomId) => {
-			if (updatedRoomId === roomId && !leaving) {
-				location.reload();
-			}
-		});
+        // CSRF Token（确保页面中包含 @Html.AntiForgeryToken() 生成的隐藏域）
+        const csrfToken = document.querySelector('input[name="__RequestVerificationToken"]').value;
 
-		connection.start().then(() => connection.invoke("JoinRoomGroup", roomId));
+        document.getElementById('rollDiceBtn').addEventListener('click', async () => {
+            if (isRolling) return;
+            isRolling = true;
+            const btn = document.getElementById('rollDiceBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ 掷骰中...';
 
-		document.addEventListener("DOMContentLoaded", function() {
-			var logContainer = document.getElementById("logContainer");
-			if (logContainer) {
-				logContainer.scrollTop = logContainer.scrollHeight;
-			}
-		});
-				function rollDice(form) {
-			const btn = document.getElementById("rollDiceBtn");
-			if (btn) {
-				btn.disabled = true;
-				btn.textContent = "⏳ 掷骰中...";
-			}
-			return true;
-		}
-			function animateDice(callback) {
-			const btn = document.getElementById("rollDiceBtn");
-			const diceEmojis = ["⚀","⚁","⚂","⚃","⚄","⚅"];
-			let count = 0;
-			const maxCount = 10;
-			btn.disabled = true;
-			const interval = setInterval(() => {
-				btn.textContent = diceEmojis[Math.floor(Math.random() * 6)] + " 掷骰中...";
-				count++;
-				if (count >= maxCount) {
-					clearInterval(interval);
-					btn.textContent = "🎲 掷骰子";
-					if (callback) callback();
-				}
-			}, 150);
-		}
-			document.getElementById("rollDiceBtn").addEventListener("click", function() {
-			if (this.disabled) return;
-			animateDice(() => {
-				document.getElementById("rollDiceForm").submit();
-			});
-		});
-		function confirmLeaveGame(form) {
-			if (confirm("确定要离开游戏吗？")) {
-				document.getElementById("leaveGameBtn").disabled = true;
-				leaving = true;
-				return true;
-			}
-			return false;
-		}
-	</script>
+            try {
+                const res = await fetch(`?handler=RollDicePreview&roomId=${roomId}&playerId=${currentPlayerId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
+                });
+                const data = await res.json();
+                if (data.error) {
+                    alert(data.error);
+                    resetButton();
+                    return;
+                }
+
+                showDiceAnimation(data.dice, () => {
+                    if (needReplacePopup(data)) {
+                        showReplacePopup(data,
+                            () => commitTurn(data.dice, true),
+                            () => commitTurn(data.dice, false)
+                        );
+                    } else {
+                        commitTurn(data.dice, data.eventType && !['Weapon','Dress','Helmet','Ring','Armring','Necklace'].includes(data.eventType) ? false : true);
+                    }
+                });
+            } catch (e) {
+                console.error(e);
+                alert('请求失败，请重试');
+                resetButton();
+            }
+        });
+
+        function resetButton() {
+            const btn = document.getElementById('rollDiceBtn');
+            btn.disabled = false;
+            btn.textContent = '🎲 投骰子';
+            isRolling = false;
+        }
+
+        function showDiceAnimation(dice, callback) {
+            const emojis = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+            const btn = document.getElementById('rollDiceBtn');
+            let count = 0;
+            const interval = setInterval(() => {
+                btn.textContent = emojis[Math.floor(Math.random()*6)] + ' 掷骰中...';
+                count++;
+                if (count >= 10) {
+                    clearInterval(interval);
+                    btn.textContent = emojis[dice-1] + ' ' + dice + '点';
+                    setTimeout(() => {
+                        btn.textContent = '🎲 掷骰子';
+                        callback();
+                    }, 500);
+                }
+            }, 100);
+        }
+
+        function needReplacePopup(data) {
+            if (!data.eventType || !['Weapon','Dress','Helmet','Ring','Armring','Necklace'].includes(data.eventType))
+                return false;
+            if (data.currentEquipment && data.currentEquipment !== '无' && data.currentEquipment !== data.newEquipmentName)
+                return true;
+            return false;
+        }
+
+        function showReplacePopup(data, onReplace, onKeep) {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-content">
+                    <h3>装备替换</h3>
+                    <p>你到达了装备格子！</p>
+                    <p><strong>新装备：</strong>${data.newEquipmentName}（属性值：${data.eventValue}）</p>
+                    <p><strong>当前装备：</strong>${data.currentEquipment}</p>
+                    <button class="btn-replace" id="replaceBtn">替换</button>
+                    <button class="btn-keep" id="keepBtn">保留当前</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            document.getElementById('replaceBtn').onclick = () => { overlay.remove(); onReplace(); };
+            document.getElementById('keepBtn').onclick = () => { overlay.remove(); onKeep(); };
+        }
+
+        async function commitTurn(dice, replace) {
+            const btn = document.getElementById('rollDiceBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ 处理中...';
+            try {
+                const res = await fetch(`?handler=CommitTurn&roomId=${roomId}&playerId=${currentPlayerId}&dice=${dice}&replaceEquipment=${replace}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert(data.error || '操作失败');
+                    resetButton();
+                }
+            } catch (e) {
+                console.error(e);
+                alert('提交失败，请重试');
+                resetButton();
+            }
+        }
+
+        function confirmLeaveGame(form) {
+            if (confirm("确定要离开游戏吗？")) {
+                document.getElementById("leaveGameBtn").disabled = true;
+                return true;
+            }
+            return false;
+        }
+    </script>
 }

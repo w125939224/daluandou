@@ -18,29 +18,6 @@ namespace daluandou.Pages
         private readonly AppDbContext _context;
         private readonly IHubContext<GameRoomHub> _hubContext;
 
-        // 装备池
-        private static readonly List<EquipmentDef> EquipmentPool = new()
-        {
-            new EquipmentDef("木剑",     "Weapon"),
-            new EquipmentDef("铁剑",     "Weapon"),
-            new EquipmentDef("短弓",     "Weapon"),
-            new EquipmentDef("魔法杖",   "Weapon"),
-            new EquipmentDef("布衣",     "Dress"),
-            new EquipmentDef("皮甲",     "Dress"),
-            new EquipmentDef("锁子甲",   "Dress"),
-            new EquipmentDef("皮帽",     "Helmet"),
-            new EquipmentDef("铁盔",     "Helmet"),
-            new EquipmentDef("斗笠",     "Helmet"),
-            new EquipmentDef("石戒指",   "Ring"),
-            new EquipmentDef("银戒指",   "Ring"),
-            new EquipmentDef("金戒指",   "Ring"),
-            new EquipmentDef("铁护腕",   "Armring"),
-            new EquipmentDef("铜护腕",   "Armring"),
-            new EquipmentDef("魔法项链", "Necklace"),
-            new EquipmentDef("骨制项链", "Necklace"),
-        };
-        private record EquipmentDef(string Name, string Slot);
-
         public GameModel(AppDbContext context, IHubContext<GameRoomHub> hubContext)
         {
             _context = context;
@@ -61,9 +38,7 @@ namespace daluandou.Pages
             {
                 var rng = new Random(roomId);
                 for (int i = 0; i < Room.MaxCount; i++)
-                {
                     BoardEvents[i] = allEvents[rng.Next(allEvents.Count)];
-                }
             }
         }
 
@@ -73,51 +48,176 @@ namespace daluandou.Pages
             if (Room == null || Room.RoomStatus != "Playing") return NotFound();
 
             Players = await _context.GamePlayers
-                .Where(p => p.GameRoomId == roomId)
-                .OrderBy(p => p.Id)
-                .ToListAsync();
+                .Where(p => p.GameRoomId == roomId).OrderBy(p => p.Id).ToListAsync();
 
             CurrentPlayer = Players.FirstOrDefault(p => p.Id == playerId);
             if (CurrentPlayer == null) return Forbid();
 
-            // ★ 陷阱判定：只有非机器人，当前回合是自己的玩家ID，且没有陷阱状态才能操作
             IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot && CurrentPlayer.TrapTurns == 0;
 
             RecentLogs = await _context.GameLogs
                 .Where(l => l.GameRoomId == roomId)
-                .OrderBy(l => l.CreatedTime)
-                .ThenBy(l => l.Id)
+                .OrderBy(l => l.CreatedTime).ThenBy(l => l.Id)
                 .ToListAsync();
 
             await InitBoardEvents(roomId);
             return Page();
         }
 
-        // 真人掷骰子
-        public async Task<IActionResult> OnPostRollDiceAsync(int roomId, int playerId)
+        // 预览掷骰子（不保存）
+        public async Task<IActionResult> OnPostRollDicePreview(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
-            if (room == null || room.RoomStatus != "Playing") return Forbid();
+            if (room == null || room.RoomStatus != "Playing")
+                return new JsonResult(new { error = "游戏未进行" });
+
+            var player = await _context.GamePlayers.FindAsync(playerId);
+            if (player == null || player.GameRoomId != roomId)
+                return new JsonResult(new { error = "玩家不存在" });
+            if (room.CurrentTurnPlayerId != playerId || player.IsBot)
+                return new JsonResult(new { error = "不是你的回合" });
+            if (player.TrapTurns > 0)
+                return new JsonResult(new { error = "你被陷阱困住，无法行动" });
+
+            Room = room;
+            await InitBoardEvents(roomId);
+
+            int dice = new Random().Next(1, 7);
+            int maxCount = room.MaxCount ?? 100;
+            int newPos = ((player.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
+
+            BoardEvents.TryGetValue(newPos - 1, out GameCells cellEvent);
+
+            return new JsonResult(new
+            {
+                dice,
+                newPosition = newPos,
+                eventType = cellEvent?.EventType,
+                eventName = cellEvent?.EventName,
+                eventDescription = cellEvent?.Description,
+                eventValue = cellEvent?.Value,
+                currentEquipment = GetCurrentEquipment(player, cellEvent?.EventType),
+                newEquipmentName = cellEvent?.EventName
+            });
+        }
+
+        // 提交回合（真正执行）
+        public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, int dice, bool replaceEquipment)
+        {
+            var room = await _context.GameRooms.FindAsync(roomId);
+            if (room == null || room.RoomStatus != "Playing")
+                return new JsonResult(new { error = "游戏未进行" });
 
             Room = room;
             await InitBoardEvents(roomId);
 
             var player = await _context.GamePlayers.FindAsync(playerId);
-            if (player == null || player.GameRoomId != roomId) return NotFound();
-            if (room.CurrentTurnPlayerId != playerId || player.IsBot) return Forbid();
-
-            // ★ 额外安全检查：如果玩家仍有陷阱，禁止行动
+            if (player == null || player.GameRoomId != roomId)
+                return new JsonResult(new { error = "玩家不存在" });
+            if (room.CurrentTurnPlayerId != playerId || player.IsBot)
+                return new JsonResult(new { error = "不是你的回合" });
             if (player.TrapTurns > 0)
-                return Forbid();
+                return new JsonResult(new { error = "无法行动" });
 
-            await ExecutePlayerTurn(room, player);
+            // 陷阱二次检查
+            if (player.TrapTurns > 0)
+            {
+                player.TrapTurns--;
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                    PlayerName = player.PlayerName,
+                    LogType = "Trap",
+                    Message = $"{player.PlayerName} 因陷阱无法行动。",
+                    CreatedTime = DateTime.UtcNow
+                });
+                await _context.SaveChangesAsync();
+                await AdvanceTurn(room);
+                await _context.SaveChangesAsync();
+                await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
+                return new JsonResult(new { success = true });
+            }
+
+            int maxCount = room.MaxCount ?? 100;
+            int newPos = ((player.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
+            player.CurrentPosition = newPos;
+
+            int? uidLog = int.TryParse(player.UserId, out var userId) ? userId : null;
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = room.Id,
+                PlayerId = uidLog,
+                PlayerName = player.PlayerName,
+                LogType = "Move",
+                Message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
+                CreatedTime = DateTime.UtcNow
+            });
+
+            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
+
+            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
+            {
+                string eventMsg = null;
+                bool isEquip = IsEquipmentSlot(evt.EventType);
+
+                if (isEquip)
+                {
+                    if (replaceEquipment)
+                    {
+                        eventMsg = ApplyEvent(room, player, evt, allPlayers, maxCount);
+                    }
+                    else
+                    {
+                        eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
+                    }
+                }
+                else
+                {
+                    eventMsg = ApplyEvent(room, player, evt, allPlayers, maxCount);
+                }
+
+                if (!string.IsNullOrEmpty(eventMsg))
+                {
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = uidLog,
+                        PlayerName = player.PlayerName,
+                        LogType = "Event",
+                        Message = eventMsg,
+                        CreatedTime = DateTime.UtcNow
+                    });
+                }
+
+                // 传送连锁
+                if (evt.EventType == "Teleport")
+                {
+                    int teleportedPos = player.CurrentPosition ?? newPos;
+                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
+                    {
+                        string additionalMsg = ApplyEvent(room, player, newEvt, allPlayers, maxCount);
+                        if (!string.IsNullOrEmpty(additionalMsg))
+                        {
+                            _context.GameLogs.Add(new GameLogs
+                            {
+                                GameRoomId = room.Id,
+                                PlayerId = uidLog,
+                                PlayerName = player.PlayerName,
+                                LogType = "Event",
+                                Message = additionalMsg,
+                                CreatedTime = DateTime.UtcNow
+                            });
+                        }
+                    }
+                }
+            }
+
             await _context.SaveChangesAsync();
-
             await AdvanceTurn(room);
             await _context.SaveChangesAsync();
-
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
-            return RedirectToPage(new { roomId, playerId });
+            return new JsonResult(new { success = true });
         }
 
         // 离开游戏
@@ -167,85 +267,27 @@ namespace daluandou.Pages
             return RedirectToPage("Play");
         }
 
-        // 执行单个玩家回合，记录移动和事件日志
-        private async Task ExecutePlayerTurn(GameRooms room, GamePlayer player)
+        private bool IsEquipmentSlot(string eventType)
         {
-            int? uid = int.TryParse(player.UserId, out var userId) ? userId : null;
-
-            // ★ 陷阱回合处理：如果有陷阱，跳过行动并减少计数
-            if (player.TrapTurns > 0)
-            {
-                player.TrapTurns--;
-                _context.GameLogs.Add(new GameLogs
-                {
-                    GameRoomId = room.Id,
-                    PlayerId = uid,
-                    PlayerName = player.PlayerName,
-                    LogType = "Trap",
-                    Message = $"{player.PlayerName} 因陷阱无法行动。",
-                    CreatedTime = DateTime.UtcNow
-                });
-                return; // 结束回合，不移动
-            }
-
-            int dice = new Random().Next(1, 7);
-            int maxCount = room.MaxCount ?? 100;
-            int oldPos = player.CurrentPosition ?? 1;
-            int newPos = (oldPos - 1 + dice) % maxCount + 1;
-            player.CurrentPosition = newPos;
-
-            _context.GameLogs.Add(new GameLogs
-            {
-                GameRoomId = room.Id,
-                PlayerId = uid,
-                PlayerName = player.PlayerName,
-                LogType = "Move",
-                Message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
-                CreatedTime = DateTime.UtcNow
-            });
-
-            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
-
-            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
-            {
-                string eventMsg = ApplyEvent(room, player, evt, allPlayers, maxCount);
-                if (!string.IsNullOrEmpty(eventMsg))
-                {
-                    _context.GameLogs.Add(new GameLogs
-                    {
-                        GameRoomId = room.Id,
-                        PlayerId = uid,
-                        PlayerName = player.PlayerName,
-                        LogType = "Event",
-                        Message = eventMsg,
-                        CreatedTime = DateTime.UtcNow
-                    });
-                }
-
-                if (evt.EventType == "Teleport")
-                {
-                    int teleportedPos = player.CurrentPosition ?? newPos;
-                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
-                    {
-                        string additionalMsg = ApplyEvent(room, player, newEvt, allPlayers, maxCount);
-                        if (!string.IsNullOrEmpty(additionalMsg))
-                        {
-                            _context.GameLogs.Add(new GameLogs
-                            {
-                                GameRoomId = room.Id,
-                                PlayerId = uid,
-                                PlayerName = player.PlayerName,
-                                LogType = "Event",
-                                Message = additionalMsg,
-                                CreatedTime = DateTime.UtcNow
-                            });
-                        }
-                    }
-                }
-            }
+            return eventType == "Weapon" || eventType == "Dress" || eventType == "Helmet" ||
+                   eventType == "Ring" || eventType == "Armring" || eventType == "Necklace";
         }
 
-        // 应用事件效果，返回事件描述字符串
+        private string GetCurrentEquipment(GamePlayer player, string eventType)
+        {
+            return eventType switch
+            {
+                "Weapon" => player.Weapon ?? "无",
+                "Dress" => player.Dress ?? "无",
+                "Helmet" => player.Helmet ?? "无",
+                "Ring" => player.Ring ?? "无",
+                "Armring" => player.Armring ?? "无",
+                "Necklace" => player.Necklace ?? "无",
+                _ => null
+            };
+        }
+
+        // 应用事件效果（所有分支都返回值）
         private string ApplyEvent(GameRooms room, GamePlayer player, GameCells evt, List<GamePlayer> allPlayers, int maxCount)
         {
             var rnd = new Random();
@@ -255,23 +297,19 @@ namespace daluandou.Pages
                     int gold = evt.Value + rnd.Next(-20, 21);
                     player.Gold = Math.Max(0, (player.Gold ?? 0) + gold);
                     return $"金币{(gold >= 0 ? "+" : "")}{gold}。";
-
                 case "HP":
                     int hp = evt.Value + rnd.Next(-5, 6);
                     player.HP = Math.Min(player.HPMAX ?? 100, Math.Max(0, (player.HP ?? 100) + hp));
                     return $"生命{(hp >= 0 ? "+" : "")}{hp}。";
-
                 case "MP":
                     int mp = evt.Value + rnd.Next(-5, 6);
                     player.MP = Math.Min(player.MPMAX ?? 100, Math.Max(0, (player.MP ?? 100) + mp));
                     return $"魔法{(mp >= 0 ? "+" : "")}{mp}。";
-
                 case "Teleport":
                     int shift = evt.Value;
                     int old = player.CurrentPosition ?? 1;
                     player.CurrentPosition = (old - 1 + shift + maxCount) % maxCount + 1;
                     return $"被传送到了格子 {player.CurrentPosition}。";
-
                 case "Steal":
                     int stealBase = evt.Value;
                     var others = allPlayers.Where(p => p.Id != player.Id).ToList();
@@ -284,11 +322,9 @@ namespace daluandou.Pages
                     }
                     player.Gold = (player.Gold ?? 0) + totalStolen;
                     return $"偷取了 {totalStolen} 金币。";
-
                 case "Trap":
-                    player.TrapTurns = 1;   // ★ 设置陷阱状态，下回合跳过
+                    player.TrapTurns = 1;
                     return "踩到了陷阱，下回合无法行动。";
-
                 case "Random":
                     int subType = rnd.Next(4);
                     if (subType == 0)
@@ -315,35 +351,57 @@ namespace daluandou.Pages
                         player.CurrentPosition = (player.CurrentPosition - 1 + s + maxCount) % maxCount + 1;
                         return $"随机移动 {s} 格。";
                     }
-
-                case "Equipment":
-                    var equip = EquipmentPool[rnd.Next(EquipmentPool.Count)];
-                    switch (equip.Slot)
+                // 装备获得（增加属性）
+                case "Weapon":
+                    player.Weapon = evt.EventName;
+                    player.DC = (player.DC ?? 0) + evt.Value;
+                    return $"获得了武器「{evt.EventName}」，攻击+{evt.Value}。";
+                case "Dress":
+                    player.Dress = evt.EventName;
+                    player.AC = (player.AC ?? 0) + evt.Value;
+                    return $"获得了衣服「{evt.EventName}」，防御+{evt.Value}。";
+                case "Helmet":
+                    player.Helmet = evt.EventName;
+                    player.AC = (player.AC ?? 0) + evt.Value;
+                    return $"获得了头盔「{evt.EventName}」，防御+{evt.Value}。";
+                case "Ring":
+                    player.Ring = evt.EventName;
+                    player.DC = (player.DC ?? 0) + evt.Value;
+                    return $"获得了戒指「{evt.EventName}」，攻击+{evt.Value}。";
+                case "Armring":
+                    player.Armring = evt.EventName;
+                    player.AC = (player.AC ?? 0) + evt.Value;
+                    return $"获得了护腕「{evt.EventName}」，防御+{evt.Value}。";
+                case "Necklace":
+                    player.Necklace = evt.EventName;
+                    int bonus = evt.Value;
+                    player.DC = (player.DC ?? 0) + bonus / 2;
+                    player.AC = (player.AC ?? 0) + bonus - bonus / 2;
+                    return $"获得了项链「{evt.EventName}」，攻击+{bonus / 2}，防御+{bonus - bonus / 2}。";
+                case "LoseEquipment":
+                    string slot = evt.EventName;
+                    switch (slot)
                     {
-                        case "Weapon": player.Weapon = equip.Name; break;
-                        case "Dress": player.Dress = equip.Name; break;
-                        case "Helmet": player.Helmet = equip.Name; break;
-                        case "Ring": player.Ring = equip.Name; break;
-                        case "Armring": player.Armring = equip.Name; break;
-                        case "Necklace": player.Necklace = equip.Name; break;
+                        case "Weapon": player.Weapon = "无"; player.DC = (player.DC ?? 0) - 3; break;
+                        case "Dress": player.Dress = "无"; player.AC = (player.AC ?? 0) - 3; break;
+                        case "Helmet": player.Helmet = "无"; player.AC = (player.AC ?? 0) - 3; break;
+                        case "Ring": player.Ring = "无"; player.DC = (player.DC ?? 0) - 2; break;
+                        case "Armring": player.Armring = "无"; player.AC = (player.AC ?? 0) - 2; break;
+                        case "Necklace": player.Necklace = "无"; player.DC = (player.DC ?? 0) - 2; player.AC = (player.AC ?? 0) - 2; break;
                     }
-                    return $"获得了装备「{equip.Name}」。";
-
+                    return $"失去了装备「{slot}」，属性降低。";
                 default:
-                    return "";
+                    return ""; // 保证所有路径返回值
             }
         }
 
-        // 切换回合，自动处理机器人回合以及陷阱玩家自动跳过
+        // 回合推进（含机器人）
         private async Task AdvanceTurn(GameRooms room)
         {
             var players = await _context.GamePlayers
-                .Where(p => p.GameRoomId == room.Id)
-                .OrderBy(p => p.Id)
-                .ToListAsync();
+                .Where(p => p.GameRoomId == room.Id).OrderBy(p => p.Id).ToListAsync();
 
-            int maxLoops = players.Count * 3; // 防止死循环
-
+            int maxLoops = players.Count * 3;
             for (int i = 0; i < maxLoops; i++)
             {
                 var cur = players.FirstOrDefault(p => p.Id == room.CurrentTurnPlayerId);
@@ -356,25 +414,93 @@ namespace daluandou.Pages
 
                 var nextPlayer = players[nextIdx];
 
-                // 如果是机器人，正常执行回合
+                // 机器人
                 if (nextPlayer.IsBot)
                 {
-                    await ExecutePlayerTurn(room, nextPlayer);
+                    await ExecuteBotTurn(room, nextPlayer);
                     await _context.SaveChangesAsync();
-                    continue; // 继续下一位
-                }
-
-                // 如果是真人但有陷阱状态，自动跳过并记录日志
-                if (!nextPlayer.IsBot && nextPlayer.TrapTurns > 0)
-                {
-                    await ExecutePlayerTurn(room, nextPlayer); // 会触发陷阱跳过日志
-                    await _context.SaveChangesAsync();
-                    // 跳过此玩家后继续寻找下一个可操作的真人
                     continue;
                 }
 
-                // 否则是真人且无陷阱，停止循环，等待玩家操作
+                // 真人陷阱自动跳过
+                if (!nextPlayer.IsBot && nextPlayer.TrapTurns > 0)
+                {
+                    nextPlayer.TrapTurns--;
+                    int? uid = int.TryParse(nextPlayer.UserId, out var uidVal) ? uidVal : null;
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = uid,
+                        PlayerName = nextPlayer.PlayerName,
+                        LogType = "Trap",
+                        Message = $"{nextPlayer.PlayerName} 因陷阱无法行动。",
+                        CreatedTime = DateTime.UtcNow
+                    });
+                    await _context.SaveChangesAsync();
+                    continue;
+                }
+
                 break;
+            }
+        }
+
+        // 机器人回合（不弹窗）
+        private async Task ExecuteBotTurn(GameRooms room, GamePlayer bot)
+        {
+            int dice = new Random().Next(1, 7);
+            int maxCount = room.MaxCount ?? 100;
+            int newPos = ((bot.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
+            bot.CurrentPosition = newPos;
+
+            int? uid = null;
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = room.Id,
+                PlayerId = uid,
+                PlayerName = bot.PlayerName,
+                LogType = "Move",
+                Message = $"{bot.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
+                CreatedTime = DateTime.UtcNow
+            });
+
+            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
+
+            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
+            {
+                string eventMsg = ApplyEvent(room, bot, evt, allPlayers, maxCount);
+                if (!string.IsNullOrEmpty(eventMsg))
+                {
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = uid,
+                        PlayerName = bot.PlayerName,
+                        LogType = "Event",
+                        Message = eventMsg,
+                        CreatedTime = DateTime.UtcNow
+                    });
+                }
+
+                if (evt.EventType == "Teleport")
+                {
+                    int teleportedPos = bot.CurrentPosition ?? newPos;
+                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
+                    {
+                        string additionalMsg = ApplyEvent(room, bot, newEvt, allPlayers, maxCount);
+                        if (!string.IsNullOrEmpty(additionalMsg))
+                        {
+                            _context.GameLogs.Add(new GameLogs
+                            {
+                                GameRoomId = room.Id,
+                                PlayerId = uid,
+                                PlayerName = bot.PlayerName,
+                                LogType = "Event",
+                                Message = additionalMsg,
+                                CreatedTime = DateTime.UtcNow
+                            });
+                        }
+                    }
+                }
             }
         }
     }

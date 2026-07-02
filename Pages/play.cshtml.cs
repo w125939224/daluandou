@@ -171,6 +171,8 @@ namespace daluandou.Pages
                 GameRoom = room.RoomCode,
                 CurrentPosition = 1,
                 Gold = 0,
+                DC = 0,
+                AC = 0,
                 HP = 100,
                 MP = 100,
                 HPMAX = 100,
