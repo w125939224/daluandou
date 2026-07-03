@@ -64,7 +64,7 @@ namespace daluandou.Pages
             return Page();
         }
 
-        // 预览掷骰子
+        // 预览掷骰子（不保存）
         public async Task<IActionResult> OnPostRollDicePreview(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -91,8 +91,8 @@ namespace daluandou.Pages
             int? currentEquipValue = null;
             if (cellEvent != null && IsEquipmentSlot(cellEvent.EventType))
             {
-                var curEquipName = GetCurrentEquipment(player, cellEvent.EventType);
-                if (!string.IsNullOrEmpty(curEquipName) && curEquipName != "无")
+                string curEquipName = GetCurrentEquipment(player, cellEvent.EventType);
+                if (curEquipName != null && curEquipName != "无")
                     currentEquipValue = await GetEquipmentValue(cellEvent.EventType, curEquipName);
             }
 
@@ -113,7 +113,7 @@ namespace daluandou.Pages
             });
         }
 
-        // 提交回合
+        // 提交回合（真正执行）
         public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, int dice, bool replaceEquipment)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -131,7 +131,6 @@ namespace daluandou.Pages
             if (player.TrapTurns > 0)
                 return new JsonResult(new { error = "无法行动" });
 
-            // 陷阱二次检查（已在Preview过滤）
             if (player.TrapTurns > 0)
             {
                 player.TrapTurns--;
@@ -172,25 +171,13 @@ namespace daluandou.Pages
             {
                 string eventMsg = null;
                 bool isEquip = IsEquipmentSlot(evt.EventType);
-                bool isLose = evt.EventType == "LoseEquipment";
 
-                if (isEquip || isLose)
+                if (isEquip)
                 {
-                    if (isEquip)
-                    {
-                        if (replaceEquipment)
-                        {
-                            eventMsg = await ApplyEvent(room, player, evt, allPlayers, maxCount);
-                        }
-                        else
-                        {
-                            eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
-                        }
-                    }
-                    else // LoseEquipment
-                    {
-                        eventMsg = await ApplyEvent(room, player, evt, allPlayers, maxCount);
-                    }
+                    if (replaceEquipment)
+                        eventMsg = await ApplyEquipmentReplace(player, evt);
+                    else
+                        eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
                 }
                 else
                 {
@@ -306,15 +293,133 @@ namespace daluandou.Pages
             };
         }
 
-        // 查询某槽位某装备的原始属性值
-        private async Task<int?> GetEquipmentValue(string eventType, string equipmentName)
+        private async Task<int> GetEquipmentValue(string slotType, string equipmentName)
         {
-            var evt = await _context.GameCells
-                .FirstOrDefaultAsync(c => c.EventType == eventType && c.EventName == equipmentName);
-            return evt?.Value;
+            var cell = await _context.GameCells
+                .FirstOrDefaultAsync(c => c.EventType == slotType && c.EventName == equipmentName);
+            return cell?.Value ?? 0;
         }
 
-        // 异步版 ApplyEvent
+        // 装备替换核心逻辑，返回详细的日志消息
+        private async Task<string> ApplyEquipmentReplace(GamePlayer player, GameCells newEvent)
+        {
+            string slot = newEvent.EventType;
+            string newName = newEvent.EventName;
+            int newValue = newEvent.Value;
+            string oldName = GetCurrentEquipment(player, slot);
+
+            // 获取属性名称和槽位中文名
+            string attrName = GetAttrName(slot);
+            string slotName = GetSlotName(slot);
+
+            int oldValue = 0;
+            if (oldName != null && oldName != "无")
+            {
+                oldValue = await GetEquipmentValue(slot, oldName);
+                SubtractAttributes(player, slot, oldValue);
+            }
+
+            SetEquipment(player, slot, newName);
+            AddAttributes(player, slot, newValue);
+
+            if (oldName != null && oldName != "无")
+            {
+                return $"更换了装备：将 {oldName}（{attrName}{oldValue}）替换为 {newName}（{attrName}{newValue}）。";
+            }
+            else
+            {
+                return $"获得了{slotName}「{newName}」，{attrName}+{newValue}。";
+            }
+        }
+
+        // 获取属性中文名（攻击力/防御力）
+        private string GetAttrName(string slot)
+        {
+            return slot switch
+            {
+                "Weapon" => "攻击力",
+                "Ring" => "攻击力",
+                "Dress" => "防御力",
+                "Helmet" => "防御力",
+                "Armring" => "防御力",
+                "Necklace" => "攻击力和防御力",
+                _ => "属性"
+            };
+        }
+
+        // 获取槽位中文名
+        private string GetSlotName(string slot)
+        {
+            return slot switch
+            {
+                "Weapon" => "武器",
+                "Dress" => "衣服",
+                "Helmet" => "头盔",
+                "Ring" => "戒指",
+                "Armring" => "护腕",
+                "Necklace" => "项链",
+                _ => "装备"
+            };
+        }
+
+        private void SetEquipment(GamePlayer player, string slot, string name)
+        {
+            switch (slot)
+            {
+                case "Weapon": player.Weapon = name; break;
+                case "Dress": player.Dress = name; break;
+                case "Helmet": player.Helmet = name; break;
+                case "Ring": player.Ring = name; break;
+                case "Armring": player.Armring = name; break;
+                case "Necklace": player.Necklace = name; break;
+            }
+        }
+
+        private void AddAttributes(GamePlayer player, string slot, int value)
+        {
+            if (value <= 0) return;
+            switch (slot)
+            {
+                case "Weapon":
+                case "Ring":
+                    player.DC = (player.DC ?? 0) + value;
+                    break;
+                case "Dress":
+                case "Helmet":
+                case "Armring":
+                    player.AC = (player.AC ?? 0) + value;
+                    break;
+                case "Necklace":
+                    player.DC = (player.DC ?? 0) + value / 2;
+                    player.AC = (player.AC ?? 0) + value - value / 2;
+                    break;
+            }
+        }
+
+        private void SubtractAttributes(GamePlayer player, string slot, int value)
+        {
+            if (value <= 0) return;
+            switch (slot)
+            {
+                case "Weapon":
+                case "Ring":
+                    player.DC = Math.Max(0, (player.DC ?? 0) - value);
+                    break;
+                case "Dress":
+                case "Helmet":
+                case "Armring":
+                    player.AC = Math.Max(0, (player.AC ?? 0) - value);
+                    break;
+                case "Necklace":
+                    int dcDeduction = value / 2;
+                    int acDeduction = value - dcDeduction;
+                    player.DC = Math.Max(0, (player.DC ?? 0) - dcDeduction);
+                    player.AC = Math.Max(0, (player.AC ?? 0) - acDeduction);
+                    break;
+            }
+        }
+
+        // 应用事件效果（非装备事件）
         private async Task<string> ApplyEvent(GameRooms room, GamePlayer player, GameCells evt, List<GamePlayer> allPlayers, int maxCount)
         {
             var rnd = new Random();
@@ -354,103 +459,25 @@ namespace daluandou.Pages
                     return "踩到了陷阱，下回合无法行动。";
                 case "Random":
                     int subType = rnd.Next(4);
-                    if (subType == 0)
+                    if (subType == 0) { int g = rnd.Next(50, 151); player.Gold += g; return $"随机获得 {g} 金币。"; }
+                    else if (subType == 1) { int h = rnd.Next(10, 31); player.HP = Math.Min(player.HPMAX ?? 100, (player.HP ?? 100) + h); return $"随机恢复 {h} 生命。"; }
+                    else if (subType == 2) { int m = rnd.Next(10, 31); player.MP = Math.Min(player.MPMAX ?? 100, (player.MP ?? 100) + m); return $"随机恢复 {m} 魔法。"; }
+                    else { int s = rnd.Next(-5, 6); player.CurrentPosition = ((player.CurrentPosition ?? 1) - 1 + s + maxCount) % maxCount + 1; return $"随机移动 {s} 格。"; }
+
+                case "LoseEquipment":
+                    string slot = evt.EventName;
+                    string oldEquipName = GetCurrentEquipment(player, slot);
+                    if (oldEquipName != null && oldEquipName != "无")
                     {
-                        int g = rnd.Next(50, 151);
-                        player.Gold += g;
-                        return $"随机获得 {g} 金币。";
-                    }
-                    else if (subType == 1)
-                    {
-                        int h = rnd.Next(10, 31);
-                        player.HP = Math.Min(player.HPMAX ?? 100, (player.HP ?? 100) + h);
-                        return $"随机恢复 {h} 生命。";
-                    }
-                    else if (subType == 2)
-                    {
-                        int m = rnd.Next(10, 31);
-                        player.MP = Math.Min(player.MPMAX ?? 100, (player.MP ?? 100) + m);
-                        return $"随机恢复 {m} 魔法。";
+                        int loseValue = await GetEquipmentValue(slot, oldEquipName);
+                        SubtractAttributes(player, slot, loseValue);
+                        SetEquipment(player, slot, "无");
+                        return $"失去了装备「{oldEquipName}」，{GetAttrName(slot)}-{loseValue}。";
                     }
                     else
                     {
-                        int s = rnd.Next(-5, 6);
-                        player.CurrentPosition = (player.CurrentPosition - 1 + s + maxCount) % maxCount + 1;
-                        return $"随机移动 {s} 格。";
+                        return "没有装备可失去。";
                     }
-                // 获得装备
-                case "Weapon":
-                    player.Weapon = evt.EventName;
-                    player.DC = (player.DC ?? 0) + evt.Value;
-                    return $"获得了武器「{evt.EventName}」，攻击+{evt.Value}。";
-                case "Dress":
-                    player.Dress = evt.EventName;
-                    player.AC = (player.AC ?? 0) + evt.Value;
-                    return $"获得了衣服「{evt.EventName}」，防御+{evt.Value}。";
-                case "Helmet":
-                    player.Helmet = evt.EventName;
-                    player.AC = (player.AC ?? 0) + evt.Value;
-                    return $"获得了头盔「{evt.EventName}」，防御+{evt.Value}。";
-                case "Ring":
-                    player.Ring = evt.EventName;
-                    player.DC = (player.DC ?? 0) + evt.Value;
-                    return $"获得了戒指「{evt.EventName}」，攻击+{evt.Value}。";
-                case "Armring":
-                    player.Armring = evt.EventName;
-                    player.AC = (player.AC ?? 0) + evt.Value;
-                    return $"获得了护腕「{evt.EventName}」，防御+{evt.Value}。";
-                case "Necklace":
-                    player.Necklace = evt.EventName;
-                    int bonus = evt.Value;
-                    player.DC = (player.DC ?? 0) + bonus / 2;
-                    player.AC = (player.AC ?? 0) + bonus - bonus / 2;
-                    return $"获得了项链「{evt.EventName}」，攻击+{bonus / 2}，防御+{bonus - bonus / 2}。";
-                // 失去装备（查询原值扣除）
-                case "LoseEquipment":
-                    string slot = evt.EventName;
-                    string currentEquipName = slot switch
-                    {
-                        "Weapon" => player.Weapon,
-                        "Dress" => player.Dress,
-                        "Helmet" => player.Helmet,
-                        "Ring" => player.Ring,
-                        "Armring" => player.Armring,
-                        "Necklace" => player.Necklace,
-                        _ => null
-                    };
-                    int? deductVal = null;
-                    if (!string.IsNullOrEmpty(currentEquipName) && currentEquipName != "无")
-                    {
-                        var equipEvent = await _context.GameCells
-                            .FirstOrDefaultAsync(c => c.EventType == slot && c.EventName == currentEquipName);
-                        if (equipEvent != null) deductVal = equipEvent.Value;
-                    }
-
-                    if (deductVal.HasValue)
-                    {
-                        if (slot == "Weapon" || slot == "Ring")
-                            player.DC = Math.Max(0, (player.DC ?? 0) - deductVal.Value);
-                        else if (slot == "Dress" || slot == "Helmet" || slot == "Armring")
-                            player.AC = Math.Max(0, (player.AC ?? 0) - deductVal.Value);
-                        else if (slot == "Necklace")
-                        {
-                            int half = deductVal.Value / 2;
-                            player.DC = Math.Max(0, (player.DC ?? 0) - half);
-                            player.AC = Math.Max(0, (player.AC ?? 0) - (deductVal.Value - half));
-                        }
-                    }
-
-                    // 清空装备
-                    switch (slot)
-                    {
-                        case "Weapon": player.Weapon = "无"; break;
-                        case "Dress": player.Dress = "无"; break;
-                        case "Helmet": player.Helmet = "无"; break;
-                        case "Ring": player.Ring = "无"; break;
-                        case "Armring": player.Armring = "无"; break;
-                        case "Necklace": player.Necklace = "无"; break;
-                    }
-                    return $"失去了装备「{currentEquipName}」，属性降低。";
 
                 default:
                     return "";
@@ -503,6 +530,7 @@ namespace daluandou.Pages
             }
         }
 
+        // 机器人回合
         private async Task ExecuteBotTurn(GameRooms room, GamePlayer bot)
         {
             int dice = new Random().Next(1, 7);
@@ -525,7 +553,12 @@ namespace daluandou.Pages
 
             if (BoardEvents.TryGetValue(newPos - 1, out var evt))
             {
-                string eventMsg = await ApplyEvent(room, bot, evt, allPlayers, maxCount);
+                string eventMsg;
+                if (IsEquipmentSlot(evt.EventType))
+                    eventMsg = await ApplyEquipmentReplace(bot, evt);
+                else
+                    eventMsg = await ApplyEvent(room, bot, evt, allPlayers, maxCount);
+
                 if (!string.IsNullOrEmpty(eventMsg))
                 {
                     _context.GameLogs.Add(new GameLogs
