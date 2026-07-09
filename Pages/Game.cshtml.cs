@@ -31,6 +31,8 @@ namespace daluandou.Pages
         public Dictionary<int, GameCells> BoardEvents { get; set; } = new();
         public List<GameLogs> RecentLogs { get; set; } = new();
 
+        private List<Magic> Skills = new();
+
         private async Task InitBoardEvents(int roomId)
         {
             var allEvents = await _context.GameCells.ToListAsync();
@@ -53,18 +55,88 @@ namespace daluandou.Pages
             CurrentPlayer = Players.FirstOrDefault(p => p.Id == playerId);
             if (CurrentPlayer == null) return Forbid();
 
-            IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot && CurrentPlayer.TrapTurns == 0;
+            bool alive = CurrentPlayer.HP > 0;
+            IsMyTurn = (Room.CurrentTurnPlayerId == playerId) && !CurrentPlayer.IsBot && alive && CurrentPlayer.TrapTurns == 0;
 
             RecentLogs = await _context.GameLogs
                 .Where(l => l.GameRoomId == roomId)
                 .OrderBy(l => l.CreatedTime).ThenBy(l => l.Id)
                 .ToListAsync();
 
+            Skills = await _context.Magics.ToListAsync();
             await InitBoardEvents(roomId);
             return Page();
         }
 
-        // 预览掷骰子（不保存）
+        // 获取可用行动（只包含已学技能）
+        public async Task<IActionResult> OnPostGetActions(int roomId, int playerId)
+        {
+            var room = await _context.GameRooms.FindAsync(roomId);
+            if (room == null || room.RoomStatus != "Playing")
+                return new JsonResult(new { error = "游戏未进行" });
+
+            var player = await _context.GamePlayers.FindAsync(playerId);
+            if (player == null || player.GameRoomId != roomId)
+                return new JsonResult(new { error = "玩家不存在" });
+            if (room.CurrentTurnPlayerId != playerId || player.IsBot || player.TrapTurns > 0 || player.HP <= 0)
+                return new JsonResult(new { error = "无法行动" });
+
+            var allPlayers = await _context.GamePlayers
+                .Where(p => p.GameRoomId == roomId && p.HP > 0)
+                .ToListAsync();
+
+            Skills = await _context.Magics.ToListAsync();
+            var learnedIds = ParseLearnedSkillIds(player.LearnedMagicIds);
+            var learnedSkills = Skills.Where(s => learnedIds.Contains(s.Id)).ToList();
+
+            var meleeTargets = allPlayers
+                .Where(p => p.Id != playerId && Math.Abs(p.CurrentPosition - player.CurrentPosition) <= 1)
+                .Select(p => new { p.Id, p.PlayerName, distance = Math.Abs(p.CurrentPosition - player.CurrentPosition) })
+                .ToList();
+
+            var availableSkills = learnedSkills.Select(s =>
+            {
+                var targets = GetSkillTargets(player, s, allPlayers);
+                return new
+                {
+                    s.Id,
+                    s.Name,
+                    s.MpCost,
+                    s.Range,
+                    s.EffectType,
+                    s.BaseValue,
+                    available = player.MP >= s.MpCost && targets.Count > 0,
+                    targets
+                };
+            }).Where(s => s.available).ToList();
+
+            return new JsonResult(new
+            {
+                canMove = true,
+                skills = availableSkills,
+                melee = new
+                {
+                    name = "平砍",
+                    available = meleeTargets.Count > 0,
+                    targets = meleeTargets
+                }
+            });
+        }
+
+        private List<object> GetSkillTargets(GamePlayer caster, Magic skill, List<GamePlayer> allPlayers)
+        {
+            var targets = new List<object>();
+            foreach (var p in allPlayers)
+            {
+                if (p.Id == caster.Id && skill.BaseValue > 0) continue;
+                int distance = Math.Abs(p.CurrentPosition - caster.CurrentPosition);
+                if (distance <= skill.Range)
+                    targets.Add(new { p.Id, p.PlayerName, distance });
+            }
+            return targets;
+        }
+
+        // 预览掷骰子
         public async Task<IActionResult> OnPostRollDicePreview(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -74,10 +146,8 @@ namespace daluandou.Pages
             var player = await _context.GamePlayers.FindAsync(playerId);
             if (player == null || player.GameRoomId != roomId)
                 return new JsonResult(new { error = "玩家不存在" });
-            if (room.CurrentTurnPlayerId != playerId || player.IsBot)
-                return new JsonResult(new { error = "不是你的回合" });
-            if (player.TrapTurns > 0)
-                return new JsonResult(new { error = "你被陷阱困住，无法行动" });
+            if (room.CurrentTurnPlayerId != playerId || player.IsBot || player.TrapTurns > 0 || player.HP <= 0)
+                return new JsonResult(new { error = "无法行动" });
 
             Room = room;
             await InitBoardEvents(roomId);
@@ -113,8 +183,8 @@ namespace daluandou.Pages
             });
         }
 
-        // 提交回合（真正执行）
-        public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, int dice, bool replaceEquipment)
+        // 提交回合
+        public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, string actionType, int dice = 0, int skillId = 0, int targetId = 0, bool replaceEquipment = true)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
             if (room == null || room.RoomStatus != "Playing")
@@ -128,11 +198,87 @@ namespace daluandou.Pages
                 return new JsonResult(new { error = "玩家不存在" });
             if (room.CurrentTurnPlayerId != playerId || player.IsBot)
                 return new JsonResult(new { error = "不是你的回合" });
+            if (player.TrapTurns > 0 || player.HP <= 0)
+                return new JsonResult(new { error = "无法行动" });
 
-            int maxCount = room.MaxCount ?? 100;
-            int newPos = ((player.CurrentPosition) - 1 + dice) % maxCount + 1;
+            Skills = await _context.Magics.ToListAsync();
 
-            string turnResult = await ExecutePlayerTurn(room, player, dice, newPos, replaceEquipment);
+            if (actionType == "move")
+            {
+                int maxCount = room.MaxCount ?? 100;
+                int newPos = ((player.CurrentPosition) - 1 + dice) % maxCount + 1;
+                await ExecutePlayerTurn(room, player, dice, newPos, replaceEquipment);
+            }
+            else if (actionType == "melee")
+            {
+                var target = await _context.GamePlayers.FindAsync(targetId);
+                if (target == null || target.GameRoomId != roomId)
+                    return new JsonResult(new { error = "目标无效" });
+                if (Math.Abs(target.CurrentPosition - player.CurrentPosition) > 1)
+                    return new JsonResult(new { error = "目标不在近战范围" });
+
+                int damage = Math.Max(1, player.DC - target.AC);
+                target.HP -= damage;
+                string msg = $"{player.PlayerName} 平砍了 {target.PlayerName}，造成 {damage} 点伤害。";
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                    PlayerName = player.PlayerName,
+                    LogType = "Melee",
+                    Message = msg,
+                    CreatedTime = DateTime.UtcNow
+                });
+                CheckDeath(target, room);
+            }
+            else if (actionType == "skill")
+            {
+                var learnedIds = ParseLearnedSkillIds(player.LearnedMagicIds);
+                if (!learnedIds.Contains(skillId))
+                    return new JsonResult(new { error = "你还没有学会此技能" });
+
+                var skill = Skills.FirstOrDefault(s => s.Id == skillId);
+                if (skill == null) return new JsonResult(new { error = "技能不存在" });
+                if (player.MP < skill.MpCost) return new JsonResult(new { error = "魔法不足" });
+
+                var target = await _context.GamePlayers.FindAsync(targetId);
+                if (target == null || target.GameRoomId != roomId)
+                    return new JsonResult(new { error = "目标无效" });
+
+                int dist = Math.Abs(player.CurrentPosition - target.CurrentPosition);
+                if (dist > skill.Range) return new JsonResult(new { error = "目标不在技能范围内" });
+
+                player.MP -= skill.MpCost;
+                string actionDesc = ApplySkillEffect(player, target, skill);
+
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                    PlayerName = player.PlayerName,
+                    LogType = "Skill",
+                    Message = actionDesc,
+                    CreatedTime = DateTime.UtcNow
+                });
+                CheckDeath(target, room);
+            }
+            else return new JsonResult(new { error = "无效行动类型" });
+
+            if (player.HP <= 0)
+            {
+                player.HP = player.HPMAX;
+                player.MP = player.MPMAX;
+                player.CurrentPosition = 1;
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                    PlayerName = player.PlayerName,
+                    LogType = "Death",
+                    Message = $"{player.PlayerName} 意外死亡，返回起点。",
+                    CreatedTime = DateTime.UtcNow
+                });
+            }
 
             await _context.SaveChangesAsync();
             await AdvanceTurn(room);
@@ -140,6 +286,55 @@ namespace daluandou.Pages
 
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
             return new JsonResult(new { success = true });
+        }
+
+        private void CheckDeath(GamePlayer target, GameRooms room)
+        {
+            if (target.HP <= 0)
+            {
+                target.HP = 0;
+                target.CurrentPosition = 1;
+                target.HP = target.HPMAX;
+                target.MP = target.MPMAX;
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = int.TryParse(target.UserId, out var uid) ? uid : null,
+                    PlayerName = target.PlayerName,
+                    LogType = "Death",
+                    Message = $"{target.PlayerName} 被击败，返回起点。",
+                    CreatedTime = DateTime.UtcNow
+                });
+            }
+        }
+
+        private string ApplySkillEffect(GamePlayer caster, GamePlayer target, Magic skill)
+        {
+            int finalValue;
+            string typeName = skill.BaseValue > 0 ? "伤害" : "治疗";
+
+            if (skill.EffectType == "Fixed")
+            {
+                finalValue = Math.Abs(skill.BaseValue);
+                if (skill.BaseValue > 0) target.HP -= finalValue;
+                else target.HP = Math.Min(target.HPMAX, target.HP + finalValue);
+            }
+            else
+            {
+                int factor = Math.Abs(skill.BaseValue);
+                if (skill.BaseValue > 0)
+                {
+                    finalValue = Math.Max(1, (caster.DC - target.AC) * factor);
+                    target.HP -= finalValue;
+                }
+                else
+                {
+                    finalValue = caster.DC * factor;
+                    target.HP = Math.Min(target.HPMAX, target.HP + finalValue);
+                }
+            }
+            string action = skill.BaseValue > 0 ? "造成" : "恢复";
+            return $"{caster.PlayerName} 对 {target.PlayerName} 使用了 {skill.Name}，{action}了 {finalValue} 点{typeName}。";
         }
 
         public async Task<IActionResult> OnPostLeaveGameAsync(int roomId, int playerId)
@@ -188,25 +383,20 @@ namespace daluandou.Pages
             return RedirectToPage("Play");
         }
 
-        private bool IsEquipmentSlot(string eventType)
-        {
-            return eventType == "Weapon" || eventType == "Dress" || eventType == "Helmet" ||
-                   eventType == "Ring" || eventType == "Armring" || eventType == "Necklace";
-        }
+        private bool IsEquipmentSlot(string eventType) =>
+            eventType == "Weapon" || eventType == "Dress" || eventType == "Helmet" ||
+            eventType == "Ring" || eventType == "Armring" || eventType == "Necklace";
 
-        private string GetCurrentEquipment(GamePlayer player, string eventType)
+        private string GetCurrentEquipment(GamePlayer player, string eventType) => eventType switch
         {
-            return eventType switch
-            {
-                "Weapon" => player.Weapon ?? "无",
-                "Dress" => player.Dress ?? "无",
-                "Helmet" => player.Helmet ?? "无",
-                "Ring" => player.Ring ?? "无",
-                "Armring" => player.Armring ?? "无",
-                "Necklace" => player.Necklace ?? "无",
-                _ => null
-            };
-        }
+            "Weapon" => player.Weapon ?? "无",
+            "Dress" => player.Dress ?? "无",
+            "Helmet" => player.Helmet ?? "无",
+            "Ring" => player.Ring ?? "无",
+            "Armring" => player.Armring ?? "无",
+            "Necklace" => player.Necklace ?? "无",
+            _ => null
+        };
 
         private async Task<int> GetEquipmentValue(string slotType, string equipmentName)
         {
@@ -214,6 +404,7 @@ namespace daluandou.Pages
                 .FirstOrDefaultAsync(c => c.EventType == slotType && c.EventName == equipmentName);
             return cell?.Value ?? 0;
         }
+
         private async Task<string> ExecutePlayerTurn(GameRooms room, GamePlayer player, int dice, int newPos, bool replaceEquipment)
         {
             int? uidLog = int.TryParse(player.UserId, out var userId) ? userId : null;
@@ -233,7 +424,6 @@ namespace daluandou.Pages
                 return "trap_skipped";
             }
 
-            // 移动
             player.CurrentPosition = newPos;
             _context.GameLogs.Add(new GameLogs
             {
@@ -252,13 +442,9 @@ namespace daluandou.Pages
             {
                 string eventMsg = null;
                 bool isEquip = IsEquipmentSlot(evt.EventType);
-
                 if (isEquip)
                 {
-                    if (replaceEquipment)
-                        eventMsg = await ApplyEquipmentReplace(player, evt);
-                    else
-                        eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
+                    eventMsg = replaceEquipment ? await ApplyEquipmentReplace(player, evt) : $"保留了当前装备，放弃了「{evt.EventName}」。";
                 }
                 else
                 {
@@ -301,63 +487,48 @@ namespace daluandou.Pages
             }
             return "ok";
         }
+
         private async Task<string> ApplyEquipmentReplace(GamePlayer player, GameCells newEvent)
         {
             string slot = newEvent.EventType;
             string newName = newEvent.EventName;
             int newValue = newEvent.Value;
             string oldName = GetCurrentEquipment(player, slot);
-
             string attrName = GetAttrName(slot);
             string slotName = GetSlotName(slot);
-
             int oldValue = 0;
             if (oldName != null && oldName != "无")
             {
                 oldValue = await GetEquipmentValue(slot, oldName);
                 SubtractAttributes(player, slot, oldValue);
             }
-
             SetEquipment(player, slot, newName);
             AddAttributes(player, slot, newValue);
-
-            if (oldName != null && oldName != "无")
-            {
-                return $"更换了装备：将 {oldName}（{attrName}{oldValue}）替换为 {newName}（{attrName}{newValue}）。";
-            }
-            else
-            {
-                return $"获得了{slotName}「{newName}」，{attrName}+{newValue}。";
-            }
+            return oldName != null && oldName != "无"
+                ? $"更换了装备：将 {oldName}（{attrName}{oldValue}）替换为 {newName}（{attrName}{newValue}）。"
+                : $"获得了{slotName}「{newName}」，{attrName}+{newValue}。";
         }
 
-        private string GetAttrName(string slot)
+        private string GetAttrName(string slot) => slot switch
         {
-            return slot switch
-            {
-                "Weapon" => "攻击力",
-                "Ring" => "攻击力",
-                "Dress" => "防御力",
-                "Helmet" => "防御力",
-                "Armring" => "防御力",
-                "Necklace" => "攻击力和防御力",
-                _ => "属性"
-            };
-        }
-
-        private string GetSlotName(string slot)
+            "Weapon" => "攻击力",
+            "Ring" => "攻击力",
+            "Dress" => "防御力",
+            "Helmet" => "防御力",
+            "Armring" => "防御力",
+            "Necklace" => "攻击力和防御力",
+            _ => "属性"
+        };
+        private string GetSlotName(string slot) => slot switch
         {
-            return slot switch
-            {
-                "Weapon" => "武器",
-                "Dress" => "衣服",
-                "Helmet" => "头盔",
-                "Ring" => "戒指",
-                "Armring" => "护腕",
-                "Necklace" => "项链",
-                _ => "装备"
-            };
-        }
+            "Weapon" => "武器",
+            "Dress" => "衣服",
+            "Helmet" => "头盔",
+            "Ring" => "戒指",
+            "Armring" => "护腕",
+            "Necklace" => "项链",
+            _ => "装备"
+        };
 
         private void SetEquipment(GamePlayer player, string slot, string name)
         {
@@ -377,19 +548,9 @@ namespace daluandou.Pages
             if (value <= 0) return;
             switch (slot)
             {
-                case "Weapon":
-                case "Ring":
-                    player.DC = (player.DC) + value;
-                    break;
-                case "Dress":
-                case "Helmet":
-                case "Armring":
-                    player.AC = (player.AC) + value;
-                    break;
-                case "Necklace":
-                    player.DC = (player.DC) + value;
-                    player.AC = (player.AC) + value;
-                    break;
+                case "Weapon": case "Ring": player.DC += value; break;
+                case "Dress": case "Helmet": case "Armring": player.AC += value; break;
+                case "Necklace": player.DC += value; player.AC += value; break;
             }
         }
 
@@ -398,19 +559,9 @@ namespace daluandou.Pages
             if (value <= 0) return;
             switch (slot)
             {
-                case "Weapon":
-                case "Ring":
-                    player.DC = Math.Max(0, player.DC - value);
-                    break;
-                case "Dress":
-                case "Helmet":
-                case "Armring":
-                    player.AC = Math.Max(0, player.AC - value);
-                    break;
-                case "Necklace":
-                    player.DC = Math.Max(0, player.DC - value);
-                    player.AC = Math.Max(0, player.AC - value);
-                    break;
+                case "Weapon": case "Ring": player.DC = Math.Max(0, player.DC - value); break;
+                case "Dress": case "Helmet": case "Armring": player.AC = Math.Max(0, player.AC - value); break;
+                case "Necklace": player.DC = Math.Max(0, player.DC - value); player.AC = Math.Max(0, player.AC - value); break;
             }
         }
 
@@ -446,7 +597,7 @@ namespace daluandou.Pages
                         other.Gold -= stolen;
                         totalStolen += stolen;
                     }
-                    player.Gold = player.Gold + totalStolen;
+                    player.Gold += totalStolen;
                     return $"偷取了 {totalStolen} 金币。";
                 case "Trap":
                     player.TrapTurns = 1;
@@ -457,7 +608,6 @@ namespace daluandou.Pages
                     else if (subType == 1) { int h = rnd.Next(10, 31); player.HP = Math.Min(player.HPMAX, player.HP + h); return $"随机恢复 {h} 生命。"; }
                     else if (subType == 2) { int m = rnd.Next(10, 31); player.MP = Math.Min(player.MPMAX, player.MP + m); return $"随机恢复 {m} 魔法。"; }
                     else { int s = rnd.Next(-5, 6); player.CurrentPosition = ((player.CurrentPosition) - 1 + s + maxCount) % maxCount + 1; return $"随机移动 {s} 格。"; }
-
                 case "LoseEquipment":
                     string slot = evt.EventName;
                     string oldEquipName = GetCurrentEquipment(player, slot);
@@ -468,34 +618,50 @@ namespace daluandou.Pages
                         SetEquipment(player, slot, "无");
                         return $"失去了装备「{oldEquipName}」，{GetAttrName(slot)}-{loseValue}。";
                     }
-                    else
+                    else return "没有装备可失去。";
+                case "LearnMagic":
+                    if (evt.MagicId != null)
                     {
-                        return "没有装备可失去。";
+                        var skill = Skills.FirstOrDefault(s => s.Id == evt.MagicId.Value);
+                        if (skill != null)
+                        {
+                            var list = ParseLearnedSkillIds(player.LearnedMagicIds);
+                            if (!list.Contains(skill.Id))
+                            {
+                                list.Add(skill.Id);
+                                player.LearnedMagicIds = string.Join(",", list);
+                                return $"学会了技能「{skill.Name}」！";
+                            }
+                            return $"你已经学会了技能「{skill.Name}」。";
+                        }
                     }
-
-                default:
                     return "";
+                default: return "";
             }
+        }
+
+        private List<int> ParseLearnedSkillIds(string learnedIds)
+        {
+            if (string.IsNullOrWhiteSpace(learnedIds)) return new List<int>();
+            return learnedIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                             .Select(id => int.TryParse(id, out var i) ? i : 0)
+                             .Where(i => i > 0)
+                             .ToList();
         }
 
         private async Task AdvanceTurn(GameRooms room)
         {
-            var players = await _context.GamePlayers
-                .Where(p => p.GameRoomId == room.Id).OrderBy(p => p.Id).ToListAsync();
-
+            var players = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).OrderBy(p => p.Id).ToListAsync();
             int maxLoops = players.Count * 3;
             for (int i = 0; i < maxLoops; i++)
             {
                 var cur = players.FirstOrDefault(p => p.Id == room.CurrentTurnPlayerId);
                 if (cur == null) break;
-
                 int idx = players.FindIndex(p => p.Id == cur.Id);
                 int nextIdx = (idx + 1) % players.Count;
                 room.CurrentTurnPlayerId = players[nextIdx].Id;
                 await _context.SaveChangesAsync();
-
                 var nextPlayer = players[nextIdx];
-
                 if (nextPlayer.IsBot)
                 {
                     await ExecuteBotTurn(room, nextPlayer);
@@ -511,6 +677,7 @@ namespace daluandou.Pages
                 break;
             }
         }
+
         private async Task ExecuteBotTurn(GameRooms room, GamePlayer bot)
         {
             int dice = new Random().Next(1, 7);

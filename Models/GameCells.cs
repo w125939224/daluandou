@@ -10,5 +10,6 @@ namespace daluandou.Models
         public string? EventName { get; set; }
         public string? Description { get; set; }
         public int Value { get; set; }
+        public int? MagicId { get; set; }
     }
 }

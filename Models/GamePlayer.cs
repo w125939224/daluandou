@@ -32,5 +32,6 @@ namespace daluandou.Models
         public GameRooms Room { get; set; } = null!;
         public bool IsBot { get; set; } = false;
         public int TrapTurns { get; set; } = 0;
+        public string? LearnedMagicIds { get; set; }
     }
 }
