@@ -84,7 +84,7 @@ namespace daluandou.Pages
 
             int dice = new Random().Next(1, 7);
             int maxCount = room.MaxCount ?? 100;
-            int newPos = ((player.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
+            int newPos = ((player.CurrentPosition) - 1 + dice) % maxCount + 1;
 
             BoardEvents.TryGetValue(newPos - 1, out GameCells cellEvent);
 
@@ -128,105 +128,20 @@ namespace daluandou.Pages
                 return new JsonResult(new { error = "玩家不存在" });
             if (room.CurrentTurnPlayerId != playerId || player.IsBot)
                 return new JsonResult(new { error = "不是你的回合" });
-            if (player.TrapTurns > 0)
-                return new JsonResult(new { error = "无法行动" });
-
-            if (player.TrapTurns > 0)
-            {
-                player.TrapTurns--;
-                _context.GameLogs.Add(new GameLogs
-                {
-                    GameRoomId = room.Id,
-                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
-                    PlayerName = player.PlayerName,
-                    LogType = "Trap",
-                    Message = $"{player.PlayerName} 因陷阱无法行动。",
-                    CreatedTime = DateTime.UtcNow
-                });
-                await _context.SaveChangesAsync();
-                await AdvanceTurn(room);
-                await _context.SaveChangesAsync();
-                await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
-                return new JsonResult(new { success = true });
-            }
 
             int maxCount = room.MaxCount ?? 100;
-            int newPos = ((player.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
-            player.CurrentPosition = newPos;
+            int newPos = ((player.CurrentPosition) - 1 + dice) % maxCount + 1;
 
-            int? uidLog = int.TryParse(player.UserId, out var userId) ? userId : null;
-            _context.GameLogs.Add(new GameLogs
-            {
-                GameRoomId = room.Id,
-                PlayerId = uidLog,
-                PlayerName = player.PlayerName,
-                LogType = "Move",
-                Message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
-                CreatedTime = DateTime.UtcNow
-            });
-
-            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
-
-            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
-            {
-                string eventMsg = null;
-                bool isEquip = IsEquipmentSlot(evt.EventType);
-
-                if (isEquip)
-                {
-                    if (replaceEquipment)
-                        eventMsg = await ApplyEquipmentReplace(player, evt);
-                    else
-                        eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
-                }
-                else
-                {
-                    eventMsg = await ApplyEvent(room, player, evt, allPlayers, maxCount);
-                }
-
-                if (!string.IsNullOrEmpty(eventMsg))
-                {
-                    _context.GameLogs.Add(new GameLogs
-                    {
-                        GameRoomId = room.Id,
-                        PlayerId = uidLog,
-                        PlayerName = player.PlayerName,
-                        LogType = "Event",
-                        Message = eventMsg,
-                        CreatedTime = DateTime.UtcNow
-                    });
-                }
-
-                if (evt.EventType == "Teleport")
-                {
-                    int teleportedPos = player.CurrentPosition ?? newPos;
-                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
-                    {
-                        string additionalMsg = await ApplyEvent(room, player, newEvt, allPlayers, maxCount);
-                        if (!string.IsNullOrEmpty(additionalMsg))
-                        {
-                            _context.GameLogs.Add(new GameLogs
-                            {
-                                GameRoomId = room.Id,
-                                PlayerId = uidLog,
-                                PlayerName = player.PlayerName,
-                                LogType = "Event",
-                                Message = additionalMsg,
-                                CreatedTime = DateTime.UtcNow
-                            });
-                        }
-                    }
-                }
-            }
+            string turnResult = await ExecutePlayerTurn(room, player, dice, newPos, replaceEquipment);
 
             await _context.SaveChangesAsync();
             await AdvanceTurn(room);
             await _context.SaveChangesAsync();
+
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
             return new JsonResult(new { success = true });
         }
 
-        // 离开游戏
         public async Task<IActionResult> OnPostLeaveGameAsync(int roomId, int playerId)
         {
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -299,8 +214,93 @@ namespace daluandou.Pages
                 .FirstOrDefaultAsync(c => c.EventType == slotType && c.EventName == equipmentName);
             return cell?.Value ?? 0;
         }
+        private async Task<string> ExecutePlayerTurn(GameRooms room, GamePlayer player, int dice, int newPos, bool replaceEquipment)
+        {
+            int? uidLog = int.TryParse(player.UserId, out var userId) ? userId : null;
 
-        // 装备替换核心逻辑，返回详细的日志消息
+            if (player.TrapTurns > 0)
+            {
+                player.TrapTurns--;
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = uidLog,
+                    PlayerName = player.PlayerName,
+                    LogType = "Trap",
+                    Message = $"{player.PlayerName} 因陷阱无法行动。",
+                    CreatedTime = DateTime.UtcNow
+                });
+                return "trap_skipped";
+            }
+
+            // 移动
+            player.CurrentPosition = newPos;
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = room.Id,
+                PlayerId = uidLog,
+                PlayerName = player.PlayerName,
+                LogType = "Move",
+                Message = $"{player.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
+                CreatedTime = DateTime.UtcNow
+            });
+
+            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
+            int maxCount = room.MaxCount ?? 100;
+
+            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
+            {
+                string eventMsg = null;
+                bool isEquip = IsEquipmentSlot(evt.EventType);
+
+                if (isEquip)
+                {
+                    if (replaceEquipment)
+                        eventMsg = await ApplyEquipmentReplace(player, evt);
+                    else
+                        eventMsg = $"保留了当前装备，放弃了「{evt.EventName}」。";
+                }
+                else
+                {
+                    eventMsg = await ApplyEvent(room, player, evt, allPlayers, maxCount);
+                }
+
+                if (!string.IsNullOrEmpty(eventMsg))
+                {
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = uidLog,
+                        PlayerName = player.PlayerName,
+                        LogType = "Event",
+                        Message = eventMsg,
+                        CreatedTime = DateTime.UtcNow
+                    });
+                }
+
+                if (evt.EventType == "Teleport")
+                {
+                    int teleportedPos = player.CurrentPosition;
+                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
+                    {
+                        string additionalMsg = await ApplyEvent(room, player, newEvt, allPlayers, maxCount);
+                        if (!string.IsNullOrEmpty(additionalMsg))
+                        {
+                            _context.GameLogs.Add(new GameLogs
+                            {
+                                GameRoomId = room.Id,
+                                PlayerId = uidLog,
+                                PlayerName = player.PlayerName,
+                                LogType = "Event",
+                                Message = additionalMsg,
+                                CreatedTime = DateTime.UtcNow
+                            });
+                        }
+                    }
+                }
+            }
+            return "ok";
+        }
         private async Task<string> ApplyEquipmentReplace(GamePlayer player, GameCells newEvent)
         {
             string slot = newEvent.EventType;
@@ -308,7 +308,6 @@ namespace daluandou.Pages
             int newValue = newEvent.Value;
             string oldName = GetCurrentEquipment(player, slot);
 
-            // 获取属性名称和槽位中文名
             string attrName = GetAttrName(slot);
             string slotName = GetSlotName(slot);
 
@@ -332,7 +331,6 @@ namespace daluandou.Pages
             }
         }
 
-        // 获取属性中文名（攻击力/防御力）
         private string GetAttrName(string slot)
         {
             return slot switch
@@ -347,7 +345,6 @@ namespace daluandou.Pages
             };
         }
 
-        // 获取槽位中文名
         private string GetSlotName(string slot)
         {
             return slot switch
@@ -382,16 +379,16 @@ namespace daluandou.Pages
             {
                 case "Weapon":
                 case "Ring":
-                    player.DC = (player.DC ?? 0) + value;
+                    player.DC = (player.DC) + value;
                     break;
                 case "Dress":
                 case "Helmet":
                 case "Armring":
-                    player.AC = (player.AC ?? 0) + value;
+                    player.AC = (player.AC) + value;
                     break;
                 case "Necklace":
-                    player.DC = (player.DC ?? 0) + value / 2;
-                    player.AC = (player.AC ?? 0) + value - value / 2;
+                    player.DC = (player.DC) + value;
+                    player.AC = (player.AC) + value;
                     break;
             }
         }
@@ -403,23 +400,20 @@ namespace daluandou.Pages
             {
                 case "Weapon":
                 case "Ring":
-                    player.DC = Math.Max(0, (player.DC ?? 0) - value);
+                    player.DC = Math.Max(0, player.DC - value);
                     break;
                 case "Dress":
                 case "Helmet":
                 case "Armring":
-                    player.AC = Math.Max(0, (player.AC ?? 0) - value);
+                    player.AC = Math.Max(0, player.AC - value);
                     break;
                 case "Necklace":
-                    int dcDeduction = value / 2;
-                    int acDeduction = value - dcDeduction;
-                    player.DC = Math.Max(0, (player.DC ?? 0) - dcDeduction);
-                    player.AC = Math.Max(0, (player.AC ?? 0) - acDeduction);
+                    player.DC = Math.Max(0, player.DC - value);
+                    player.AC = Math.Max(0, player.AC - value);
                     break;
             }
         }
 
-        // 应用事件效果（非装备事件）
         private async Task<string> ApplyEvent(GameRooms room, GamePlayer player, GameCells evt, List<GamePlayer> allPlayers, int maxCount)
         {
             var rnd = new Random();
@@ -427,19 +421,19 @@ namespace daluandou.Pages
             {
                 case "Gold":
                     int gold = evt.Value + rnd.Next(-20, 21);
-                    player.Gold = Math.Max(0, (player.Gold ?? 0) + gold);
+                    player.Gold = Math.Max(0, player.Gold + gold);
                     return $"金币{(gold >= 0 ? "+" : "")}{gold}。";
                 case "HP":
                     int hp = evt.Value + rnd.Next(-5, 6);
-                    player.HP = Math.Min(player.HPMAX ?? 100, Math.Max(0, (player.HP ?? 100) + hp));
+                    player.HP = Math.Min(player.HPMAX, Math.Max(0, player.HP + hp));
                     return $"生命{(hp >= 0 ? "+" : "")}{hp}。";
                 case "MP":
                     int mp = evt.Value + rnd.Next(-5, 6);
-                    player.MP = Math.Min(player.MPMAX ?? 100, Math.Max(0, (player.MP ?? 100) + mp));
+                    player.MP = Math.Min(player.MPMAX, Math.Max(0, player.MP + mp));
                     return $"魔法{(mp >= 0 ? "+" : "")}{mp}。";
                 case "Teleport":
                     int shift = evt.Value;
-                    int old = player.CurrentPosition ?? 1;
+                    int old = player.CurrentPosition;
                     player.CurrentPosition = (old - 1 + shift + maxCount) % maxCount + 1;
                     return $"被传送到了格子 {player.CurrentPosition}。";
                 case "Steal":
@@ -448,11 +442,11 @@ namespace daluandou.Pages
                     int totalStolen = 0;
                     foreach (var other in others)
                     {
-                        int stolen = Math.Min(stealBase + rnd.Next(0, 21), other.Gold ?? 0);
+                        int stolen = Math.Min(stealBase + rnd.Next(0, 21), other.Gold);
                         other.Gold -= stolen;
                         totalStolen += stolen;
                     }
-                    player.Gold = (player.Gold ?? 0) + totalStolen;
+                    player.Gold = player.Gold + totalStolen;
                     return $"偷取了 {totalStolen} 金币。";
                 case "Trap":
                     player.TrapTurns = 1;
@@ -460,9 +454,9 @@ namespace daluandou.Pages
                 case "Random":
                     int subType = rnd.Next(4);
                     if (subType == 0) { int g = rnd.Next(50, 151); player.Gold += g; return $"随机获得 {g} 金币。"; }
-                    else if (subType == 1) { int h = rnd.Next(10, 31); player.HP = Math.Min(player.HPMAX ?? 100, (player.HP ?? 100) + h); return $"随机恢复 {h} 生命。"; }
-                    else if (subType == 2) { int m = rnd.Next(10, 31); player.MP = Math.Min(player.MPMAX ?? 100, (player.MP ?? 100) + m); return $"随机恢复 {m} 魔法。"; }
-                    else { int s = rnd.Next(-5, 6); player.CurrentPosition = ((player.CurrentPosition ?? 1) - 1 + s + maxCount) % maxCount + 1; return $"随机移动 {s} 格。"; }
+                    else if (subType == 1) { int h = rnd.Next(10, 31); player.HP = Math.Min(player.HPMAX, player.HP + h); return $"随机恢复 {h} 生命。"; }
+                    else if (subType == 2) { int m = rnd.Next(10, 31); player.MP = Math.Min(player.MPMAX, player.MP + m); return $"随机恢复 {m} 魔法。"; }
+                    else { int s = rnd.Next(-5, 6); player.CurrentPosition = ((player.CurrentPosition) - 1 + s + maxCount) % maxCount + 1; return $"随机移动 {s} 格。"; }
 
                 case "LoseEquipment":
                     string slot = evt.EventName;
@@ -508,91 +502,21 @@ namespace daluandou.Pages
                     await _context.SaveChangesAsync();
                     continue;
                 }
-
                 if (!nextPlayer.IsBot && nextPlayer.TrapTurns > 0)
                 {
-                    nextPlayer.TrapTurns--;
-                    int? uid = int.TryParse(nextPlayer.UserId, out var uidVal) ? uidVal : null;
-                    _context.GameLogs.Add(new GameLogs
-                    {
-                        GameRoomId = room.Id,
-                        PlayerId = uid,
-                        PlayerName = nextPlayer.PlayerName,
-                        LogType = "Trap",
-                        Message = $"{nextPlayer.PlayerName} 因陷阱无法行动。",
-                        CreatedTime = DateTime.UtcNow
-                    });
+                    await ExecutePlayerTurn(room, nextPlayer, 0, 0, false);
                     await _context.SaveChangesAsync();
                     continue;
                 }
-
                 break;
             }
         }
-
-        // 机器人回合
         private async Task ExecuteBotTurn(GameRooms room, GamePlayer bot)
         {
             int dice = new Random().Next(1, 7);
             int maxCount = room.MaxCount ?? 100;
-            int newPos = ((bot.CurrentPosition ?? 1) - 1 + dice) % maxCount + 1;
-            bot.CurrentPosition = newPos;
-
-            int? uid = null;
-            _context.GameLogs.Add(new GameLogs
-            {
-                GameRoomId = room.Id,
-                PlayerId = uid,
-                PlayerName = bot.PlayerName,
-                LogType = "Move",
-                Message = $"{bot.PlayerName} 掷出了 {dice} 点，移动到格子 {newPos}。",
-                CreatedTime = DateTime.UtcNow
-            });
-
-            var allPlayers = await _context.GamePlayers.Where(p => p.GameRoomId == room.Id).ToListAsync();
-
-            if (BoardEvents.TryGetValue(newPos - 1, out var evt))
-            {
-                string eventMsg;
-                if (IsEquipmentSlot(evt.EventType))
-                    eventMsg = await ApplyEquipmentReplace(bot, evt);
-                else
-                    eventMsg = await ApplyEvent(room, bot, evt, allPlayers, maxCount);
-
-                if (!string.IsNullOrEmpty(eventMsg))
-                {
-                    _context.GameLogs.Add(new GameLogs
-                    {
-                        GameRoomId = room.Id,
-                        PlayerId = uid,
-                        PlayerName = bot.PlayerName,
-                        LogType = "Event",
-                        Message = eventMsg,
-                        CreatedTime = DateTime.UtcNow
-                    });
-                }
-
-                if (evt.EventType == "Teleport")
-                {
-                    int teleportedPos = bot.CurrentPosition ?? newPos;
-                    if (BoardEvents.TryGetValue(teleportedPos - 1, out var newEvt))
-                    {
-                        string additionalMsg = await ApplyEvent(room, bot, newEvt, allPlayers, maxCount);
-                        if (!string.IsNullOrEmpty(additionalMsg))
-                        {
-                            _context.GameLogs.Add(new GameLogs
-                            {
-                                GameRoomId = room.Id,
-                                PlayerId = uid,
-                                PlayerName = bot.PlayerName,
-                                LogType = "Event",
-                                Message = additionalMsg,
-                                CreatedTime = DateTime.UtcNow
-                            });
-                        }
-                    }
-                }
-            }
+            int newPos = ((bot.CurrentPosition) - 1 + dice) % maxCount + 1;
+            await ExecutePlayerTurn(room, bot, dice, newPos, true);
         }
     }
 }

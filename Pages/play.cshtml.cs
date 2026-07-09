@@ -169,20 +169,6 @@ namespace daluandou.Pages
                 PlayerColor = playerColor,
                 GameRoomId = room.Id,
                 GameRoom = room.RoomCode,
-                CurrentPosition = 1,
-                Gold = 0,
-                DC = 0,
-                AC = 0,
-                HP = 100,
-                MP = 100,
-                HPMAX = 100,
-                MPMAX = 100,
-                Weapon = "无",
-                Dress = "无",
-                Helmet = "无",
-                Necklace = "无",
-                Ring = "无",
-                Armring = "无",
                 IsBot = isBot
             };
 
@@ -209,18 +195,6 @@ namespace daluandou.Pages
                 PlayerColor = color,
                 GameRoomId = roomId,
                 GameRoom = room.RoomCode,
-                CurrentPosition = 1,
-                Gold = 0,
-                HP = 100,
-                MP = 100,
-                HPMAX = 100,
-                MPMAX = 100,
-                Weapon = "无",
-                Dress = "无",
-                Helmet = "无",
-                Necklace = "无",
-                Ring = "无",
-                Armring = "无",
                 IsBot = true
             };
             _context.GamePlayers.Add(bot);

@@ -9,20 +9,20 @@ namespace daluandou.Models
         public string? UserId { get; set; }
         public int? GameRoomId { get; set; }
         public string? GameRoom { get; set; }
-        public int? CurrentPosition { get; set; }
-        public int? Gold { get; set; }
-        public int? DC { get; set; }
-        public int? AC { get; set; }
-        public int? HP { get; set; }
-        public int? MP { get; set; }
-        public int? HPMAX { get; set; }
-        public int? MPMAX { get; set; }
-        public string? Weapon { get; set; }
-        public string? Dress { get; set; }
-        public string? Helmet { get; set; }
-        public string? Necklace { get; set; }
-        public string? Ring { get; set; }
-        public string? Armring { get; set; }
+        public int CurrentPosition { get; set; }
+        public int Gold { get; set; } = 0;
+        public int DC { get; set; } = 0;
+        public int AC { get; set; } = 0;
+        public int HP { get; set; } = 100;
+        public int MP { get; set; } = 100;
+        public int HPMAX { get; set; } = 100;
+        public int MPMAX { get; set; } = 100;
+        public string? Weapon { get; set; } = "无";
+        public string? Dress { get; set; } = "无";
+        public string? Helmet { get; set; } = "无";
+        public string? Necklace { get; set; } = "无";
+        public string? Ring { get; set; } = "无";
+        public string? Armring { get; set; } = "无";
 
         public string? PlayerName { get; set; }
 
