@@ -329,7 +329,7 @@
                 pendingDiceData = data;
 
                 if (data.eventType === 'Shop') {
-                    openShopModal();   // 显示商店，流程暂停，等商店关闭后继续
+                    openShopModal();
                 } else {
                     showDiceAnimation(data.dice, () => {
                         handleDiceResult(data);
@@ -458,7 +458,6 @@
         function executeSkill(skillId, targetId) { closeSkillModal(); commitTurn('skill', 0, skillId, targetId, false); }
         function closeSkillModal() { document.getElementById('skillModal').style.display = 'none'; }
 
-        // 商店相关
         async function openShopModal() {
             try {
                 const res = await fetch(`?handler=GetShopItems&roomId=${roomId}`, {
@@ -469,6 +468,7 @@
                 items.forEach(i => {
                     html += `<div class="shop-item">
                         <span><strong>${i.itemName}</strong> (${i.itemType}) - 💰${i.price}</span>
+                        <div style="font-size:0.8rem; color:#666;">${i.description || ''}</div>
                         <button onclick="buyItem(${i.id})">购买</button>
                     </div>`;
                 });
