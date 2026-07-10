@@ -18,6 +18,7 @@ namespace daluandou.Data
         public DbSet<GamePlayer> GamePlayers { get; set; }
         public DbSet<GameLogs> GameLogs { get; set; }
         public DbSet<Magic> Magics { get; set; }
+        public DbSet<ShopItem> ShopItems { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.HasCharSet(CharSet.Utf8Mb4, DelegationModes.ApplyToColumns);

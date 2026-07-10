@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.SignalR;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace daluandou.Pages
@@ -68,7 +69,7 @@ namespace daluandou.Pages
             return Page();
         }
 
-        // 获取可用行动（只包含已学技能）
+        // 获取可用行动（技能、平砍、卡牌）
         public async Task<IActionResult> OnPostGetActions(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -110,16 +111,29 @@ namespace daluandou.Pages
                 };
             }).Where(s => s.available).ToList();
 
+            // 卡牌
+            var cards = ParseCards(player.CardsJson);
+            var availableCards = new List<object>();
+            if (cards.ContainsKey("DoubleDice") && cards["DoubleDice"] > 0)
+                availableCards.Add(new { type = "DoubleDice", name = "双重骰子", description = "下次掷骰子时可投两次" });
+            if (cards.ContainsKey("TrapEnemy") && cards["TrapEnemy"] > 0)
+            {
+                var trapTargets = allPlayers.Where(p => p.Id != playerId)
+                    .Select(p => new { p.Id, p.PlayerName, distance = Math.Abs(p.CurrentPosition - player.CurrentPosition) })
+                    .ToList();
+                availableCards.Add(new { type = "TrapEnemy", name = "禁锢咒", description = "指定一名敌人下回合休息", targets = trapTargets });
+            }
+            if (cards.ContainsKey("Forward1") && cards["Forward1"] > 0)
+                availableCards.Add(new { type = "Forward1", name = "前进卡", description = "立即前进1格" });
+            if (cards.ContainsKey("Backward1") && cards["Backward1"] > 0)
+                availableCards.Add(new { type = "Backward1", name = "后退卡", description = "立即后退1格" });
+
             return new JsonResult(new
             {
                 canMove = true,
                 skills = availableSkills,
-                melee = new
-                {
-                    name = "平砍",
-                    available = meleeTargets.Count > 0,
-                    targets = meleeTargets
-                }
+                melee = new { name = "平砍", available = meleeTargets.Count > 0, targets = meleeTargets },
+                cards = availableCards
             });
         }
 
@@ -136,7 +150,7 @@ namespace daluandou.Pages
             return targets;
         }
 
-        // 预览掷骰子
+        // 预览掷骰子（不变）
         public async Task<IActionResult> OnPostRollDicePreview(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -183,8 +197,8 @@ namespace daluandou.Pages
             });
         }
 
-        // 提交回合
-        public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, string actionType, int dice = 0, int skillId = 0, int targetId = 0, bool replaceEquipment = true)
+        // 提交回合（移动/普攻/技能）
+        public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, string actionType, int dice = 0, int skillId = 0, int targetId = 0, bool replaceEquipment = true, bool useDoubleDice = false)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
             if (room == null || room.RoomStatus != "Playing")
@@ -206,6 +220,21 @@ namespace daluandou.Pages
             if (actionType == "move")
             {
                 int maxCount = room.MaxCount ?? 100;
+                if (useDoubleDice)
+                {
+                    ConsumeCard(player, "DoubleDice");
+                    int dice2 = new Random().Next(1, 7);
+                    dice += dice2;
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                        PlayerName = player.PlayerName,
+                        LogType = "Card",
+                        Message = $"{player.PlayerName} 使用了双重骰子，额外掷出 {dice2} 点。",
+                        CreatedTime = DateTime.UtcNow
+                    });
+                }
                 int newPos = ((player.CurrentPosition) - 1 + dice) % maxCount + 1;
                 await ExecutePlayerTurn(room, player, dice, newPos, replaceEquipment);
             }
@@ -286,6 +315,163 @@ namespace daluandou.Pages
 
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("UpdateGame", roomId);
             return new JsonResult(new { success = true });
+        }
+
+        // 使用卡牌（禁锢咒、前进/后退卡）
+        public async Task<IActionResult> OnPostUseCard(int roomId, int playerId, string cardType, int targetId = 0)
+        {
+            var player = await _context.GamePlayers.FindAsync(playerId);
+            if (player == null || player.GameRoomId != roomId)
+                return new JsonResult(new { error = "玩家不存在" });
+
+            var cards = ParseCards(player.CardsJson);
+            if (!cards.ContainsKey(cardType) || cards[cardType] <= 0)
+                return new JsonResult(new { error = "没有该卡牌" });
+
+            if (cardType == "DoubleDice")
+                return new JsonResult(new { error = "请在掷骰子时选择使用双重骰子" });
+
+            cards[cardType]--;
+            if (cards[cardType] <= 0) cards.Remove(cardType);
+            player.CardsJson = JsonSerializer.Serialize(cards);
+
+            string logMsg = "";
+            switch (cardType)
+            {
+                case "TrapEnemy":
+                    var target = await _context.GamePlayers.FindAsync(targetId);
+                    if (target != null)
+                    {
+                        target.TrapTurns = 1;
+                        logMsg = $"{player.PlayerName} 对 {target.PlayerName} 使用了禁锢咒，目标下回合无法行动。";
+                    }
+                    break;
+                case "Forward1":
+                    int maxF = Room?.MaxCount ?? 100;
+                    player.CurrentPosition = (player.CurrentPosition % maxF) + 1;
+                    logMsg = $"{player.PlayerName} 使用前进卡，移动到格子 {player.CurrentPosition}。";
+                    break;
+                case "Backward1":
+                    int maxB = Room?.MaxCount ?? 100;
+                    player.CurrentPosition = ((player.CurrentPosition - 2 + maxB) % maxB) + 1;
+                    logMsg = $"{player.PlayerName} 使用后退卡，移动到格子 {player.CurrentPosition}。";
+                    break;
+                default:
+                    return new JsonResult(new { error = "未知卡牌" });
+            }
+
+            if (!string.IsNullOrEmpty(logMsg))
+            {
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = roomId,
+                    PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                    PlayerName = player.PlayerName,
+                    LogType = "Card",
+                    Message = logMsg,
+                    CreatedTime = DateTime.UtcNow
+                });
+            }
+
+            await _context.SaveChangesAsync();
+            return new JsonResult(new { success = true });
+        }
+
+        // 获取随机商店物品（每次踩中商店时随机抽取 3~5 件）
+        public async Task<IActionResult> OnPostGetShopItems(int roomId)
+        {
+            var allItems = await _context.ShopItems.ToListAsync();
+            var rnd = new Random();
+            int take = Math.Min(allItems.Count, rnd.Next(3, 6));
+            var selectedItems = allItems.OrderBy(x => rnd.Next()).Take(take).ToList();
+            return new JsonResult(selectedItems.Select(i => new {
+                i.Id,
+                i.ItemType,
+                i.ItemId,
+                i.ItemName,
+                i.Price,
+                i.Description
+            }));
+        }
+
+        // 购买物品
+        public async Task<IActionResult> OnPostBuyItem(int roomId, int playerId, int shopItemId)
+        {
+            var player = await _context.GamePlayers.FindAsync(playerId);
+            if (player == null || player.GameRoomId != roomId)
+                return new JsonResult(new { error = "玩家不存在" });
+
+            var item = await _context.ShopItems.FindAsync(shopItemId);
+            if (item == null) return new JsonResult(new { error = "物品不存在" });
+
+            if (player.Gold < item.Price)
+                return new JsonResult(new { error = "金币不足" });
+
+            player.Gold -= item.Price;
+
+            switch (item.ItemType)
+            {
+                case "Equipment":
+                    var cell = await _context.GameCells.FindAsync(item.ItemId);
+                    if (cell != null && IsEquipmentSlot(cell.EventType))
+                    {
+                        await ApplyEquipmentReplace(player, cell);
+                    }
+                    break;
+                case "Magic":
+                    var magic = await _context.Magics.FindAsync(item.ItemId);
+                    if (magic != null)
+                    {
+                        var learned = ParseLearnedSkillIds(player.LearnedMagicIds);
+                        if (!learned.Contains(magic.Id))
+                        {
+                            learned.Add(magic.Id);
+                            player.LearnedMagicIds = string.Join(",", learned);
+                        }
+                    }
+                    break;
+                case "CardItem":
+                    var cards = ParseCards(player.CardsJson);
+                    string cardType = item.ItemName switch
+                    {
+                        "双重骰子" => "DoubleDice",
+                        "禁锢咒" => "TrapEnemy",
+                        "前进卡" => "Forward1",
+                        "后退卡" => "Backward1",
+                        _ => null
+                    };
+                    if (cardType != null)
+                    {
+                        if (cards.ContainsKey(cardType))
+                            cards[cardType]++;
+                        else
+                            cards[cardType] = 1;
+                        player.CardsJson = JsonSerializer.Serialize(cards);
+                    }
+                    break;
+            }
+
+            await _context.SaveChangesAsync();
+            return new JsonResult(new { success = true, gold = player.Gold });
+        }
+
+        // 辅助方法：消耗卡牌
+        private void ConsumeCard(GamePlayer player, string cardType)
+        {
+            var cards = ParseCards(player.CardsJson);
+            if (cards.ContainsKey(cardType) && cards[cardType] > 0)
+            {
+                cards[cardType]--;
+                if (cards[cardType] <= 0) cards.Remove(cardType);
+                player.CardsJson = JsonSerializer.Serialize(cards);
+            }
+        }
+
+        private Dictionary<string, int> ParseCards(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, int>();
+            try { return JsonSerializer.Deserialize<Dictionary<string, int>>(json); }
+            catch { return new Dictionary<string, int>(); }
         }
 
         private void CheckDeath(GamePlayer target, GameRooms room)
@@ -636,7 +822,10 @@ namespace daluandou.Pages
                         }
                     }
                     return "";
-                default: return "";
+                case "Shop":
+                    return "你进入了商店。";
+                default:
+                    return "";
             }
         }
 

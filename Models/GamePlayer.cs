@@ -10,7 +10,7 @@ namespace daluandou.Models
         public int? GameRoomId { get; set; }
         public string? GameRoom { get; set; }
         public int CurrentPosition { get; set; }
-        public int Gold { get; set; } = 0;
+        public int Gold { get; set; } = 500;
         public int DC { get; set; } = 0;
         public int AC { get; set; } = 0;
         public int HP { get; set; } = 100;
@@ -33,5 +33,6 @@ namespace daluandou.Models
         public bool IsBot { get; set; } = false;
         public int TrapTurns { get; set; } = 0;
         public string? LearnedMagicIds { get; set; }
+        public string? CardsJson { get; set; }
     }
 }
