@@ -82,14 +82,11 @@ namespace daluandou.Pages
                 room.CurrentTurnPlayerId = playersInRoom.First().Id;
 
             await _context.SaveChangesAsync();
-
-            // 通知所有玩家游戏开始
             await _hubContext.Clients.Group($"game_{roomId}").SendAsync("StartGame", roomId, playerId);
-
             return RedirectToPage("Game", new { roomId, playerId });
         }
 
-        // 离开房间（等待阶段，删除玩家记录）
+        // 离开房间（等待阶段）
         public async Task<IActionResult> OnPostLeaveRoomAsync(int roomId, int playerId)
         {
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -102,7 +99,6 @@ namespace daluandou.Pages
                 _context.GamePlayers.Remove(player);
                 room.CurrentPlayers--;
 
-                // 如果房主离开且房间还有人，转移房主
                 if (room.RoomOwner == User.Identity?.Name && room.CurrentPlayers > 0)
                 {
                     var nextOwner = await _context.GamePlayers
@@ -117,7 +113,6 @@ namespace daluandou.Pages
             return RedirectToPage("Play");
         }
 
-        // 房主在等待阶段添加机器人
         public async Task<IActionResult> OnPostAddBotAsync(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -132,8 +127,10 @@ namespace daluandou.Pages
                 PlayerColor = color,
                 GameRoomId = roomId,
                 GameRoom = room.RoomCode,
-                CurrentPosition = 0,
-                Gold = 0,
+                CurrentPosition = 1,
+                Gold = 500,
+                DC = 0,
+                AC = 0,
                 HP = 100,
                 MP = 100,
                 HPMAX = 100,
