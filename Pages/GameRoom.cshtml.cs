@@ -62,7 +62,6 @@ namespace daluandou.Pages
             return Page();
         }
 
-        // 房主开始游戏
         public async Task<IActionResult> OnPostStartGameAsync(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -156,7 +155,6 @@ namespace daluandou.Pages
             return RedirectToPage(new { roomId, playerId });
         }
 
-        // 从可用颜色池中选择尚未使用的颜色
         private async Task<string> GetAvailableColor(int roomId)
         {
             var usedColors = await _context.GamePlayers

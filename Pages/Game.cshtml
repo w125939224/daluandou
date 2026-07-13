@@ -131,6 +131,13 @@
             padding: 0.3rem 1rem;
             font-size: 0.9rem;
         }
+
+    .monster-info {
+        background: #fff3cd;
+        border-radius: 8px;
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+    }
 </style>
 
 <div class="container">
@@ -189,6 +196,7 @@
                                 "LoseEquipment" => "🗑️",
                                 "Shop" => "🛒",
                                 "LearnMagic" => "📖",
+                                "Monster" => "👹",
                                 _ => "·"
                             };
                             <div>@icon</div>
@@ -232,13 +240,26 @@
                     </div>
                                         }
                 </div>
+
+                <!-- 怪物信息显示 -->
+                @if (Model.Monsters.TryGetValue(Model.CurrentPlayer.CurrentPosition, out var monster) && monster.CurrentHP > 0)
+                {
+                    <div class="monster-info mt-2">
+                        <strong>👹 @monster.Name</strong><br />
+                        ❤️ @monster.CurrentHP / @monster.MaxHP | ⚔️ @monster.Attack | 🛡️ @monster.Defense
+                    </div>
+                }
             </div>
 
             @if (Model.IsMyTurn)
             {
                 <button type="button" class="btn btn-primary w-100 mb-2" id="rollDiceBtn">🎲 摇骰子</button>
                 <button type="button" class="btn btn-info w-100 mb-2" id="skillBtn">✨ 技能/攻击</button>
-                <button type="button" class="btn btn-warning w-100" id="cardBtn">🃏 卡牌</button>
+                <button type="button" class="btn btn-warning w-100 mb-2" id="cardBtn">🃏 卡牌</button>
+                @if (Model.Monsters.ContainsKey(Model.CurrentPlayer.CurrentPosition) && Model.CurrentPlayer.HP > 0)
+                {
+                    <button type="button" class="btn btn-danger w-100" id="attackMonsterBtn">⚔️ 攻击怪物</button>
+                }
             }
             else if (!Model.CurrentPlayer.IsBot)
             {
@@ -304,7 +325,7 @@
         const roomId = @Model.Room.Id;
         const currentPlayerId = @Model.CurrentPlayer.Id;
         let isRolling = false;
-        let pendingDiceData = null;   // 保存当前掷骰子结果，供后续流程使用
+        let pendingDiceData = null;
 
         // SignalR
         const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").build();
@@ -316,24 +337,18 @@
             if (isRolling) return;
             isRolling = true;
             const btn = document.getElementById('rollDiceBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ 掷骰中...';
+            btn.disabled = true; btn.textContent = '⏳ 掷骰中...';
             try {
                 const res = await fetch(`?handler=RollDicePreview&roomId=${roomId}&playerId=${currentPlayerId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
                 });
                 const data = await res.json();
                 if (data.error) { alert(data.error); resetButton(); return; }
-
                 pendingDiceData = data;
-
                 if (data.eventType === 'Shop') {
                     openShopModal();
                 } else {
-                    showDiceAnimation(data.dice, () => {
-                        handleDiceResult(data);
-                    });
+                    showDiceAnimation(data.dice, () => handleDiceResult(data));
                 }
             } catch (e) { console.error(e); alert('请求失败'); resetButton(); }
         });
@@ -354,11 +369,9 @@
             }, 100);
         }
 
-        // 处理骰子结果（装备替换、双重骰子询问）
         function handleDiceResult(diceData) {
             fetch(`?handler=GetActions&roomId=${roomId}&playerId=${currentPlayerId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
             }).then(r => r.json()).then(actions => {
                 if (actions.cards && actions.cards.find(c => c.type === 'DoubleDice')) {
                     document.getElementById('doubleDiceModal').style.display = 'flex';
@@ -368,9 +381,8 @@
             }).catch(() => commitDice(diceData, false));
         }
 
-        // 提交掷骰子移动（diceData 必须包含 dice 和 eventType）
         function commitDice(diceData, useDouble) {
-            if (!diceData) { console.error('diceData is null'); resetButton(); return; }
+            if (!diceData) { resetButton(); return; }
             if (needReplacePopup(diceData)) {
                 showReplacePopup(diceData,
                     () => commitTurn('move', diceData.dice, 0, 0, true, useDouble),
@@ -382,7 +394,6 @@
             }
         }
 
-        // 双重骰子弹窗按钮
         document.getElementById('useDoubleDiceBtn').addEventListener('click', () => {
             document.getElementById('doubleDiceModal').style.display = 'none';
             if (pendingDiceData) commitDice(pendingDiceData, true);
@@ -414,7 +425,7 @@
             document.getElementById('keepBtn').onclick = () => { overlay.remove(); onKeep(); };
         }
 
-        // 技能/攻击按钮
+        // 技能/攻击玩家按钮
         document.getElementById('skillBtn').addEventListener('click', async () => {
             const btn = document.getElementById('skillBtn'); btn.disabled = true;
             try {
@@ -458,6 +469,7 @@
         function executeSkill(skillId, targetId) { closeSkillModal(); commitTurn('skill', 0, skillId, targetId, false); }
         function closeSkillModal() { document.getElementById('skillModal').style.display = 'none'; }
 
+        // 商店
         async function openShopModal() {
             try {
                 const res = await fetch(`?handler=GetShopItems&roomId=${roomId}`, {
@@ -483,24 +495,17 @@
             });
             const data = await res.json();
             if (data.success) {
-                alert('购买成功！');
-                location.reload();
-            } else {
-                alert(data.error || '购买失败');
-            }
+                alert('购买成功！'); location.reload();
+            } else { alert(data.error || '购买失败'); }
         }
 
         function closeShopModal() {
             document.getElementById('shopModal').style.display = 'none';
-            // 关闭商店后，继续掷骰子流程（处理装备替换、双重骰子询问等）
-            if (pendingDiceData) {
-                handleDiceResult(pendingDiceData);
-            } else {
-                resetButton();
-            }
+            if (pendingDiceData) handleDiceResult(pendingDiceData);
+            else resetButton();
         }
 
-        // 卡牌相关
+        // 卡牌
         document.getElementById('cardBtn').addEventListener('click', async () => {
             const res = await fetch(`?handler=GetActions&roomId=${roomId}&playerId=${currentPlayerId}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
@@ -535,21 +540,42 @@
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
             });
             const data = await res.json();
-            if (data.success) {
-                location.reload();
-            } else {
-                alert(data.error || '使用失败');
-            }
+            if (data.success) location.reload();
+            else alert(data.error || '使用失败');
         }
 
         function closeCardModal() { document.getElementById('cardModal').style.display = 'none'; }
 
-        // 提交回合（通用）
+        // 攻击怪物按钮
+        document.getElementById('attackMonsterBtn')?.addEventListener('click', async () => {
+            const res = await fetch(`?handler=GetActions&roomId=${roomId}&playerId=${currentPlayerId}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
+            });
+            const data = await res.json();
+            const monster = data.monster;
+            if (!monster) { alert("没有怪物可攻击"); return; }
+            let html = `<p>当前怪物：${monster.name} (❤️${monster.hp}/${monster.maxHp})</p>`;
+            html += '<div class="mb-2"><button class="btn btn-sm btn-outline-danger" onclick="attackMonsterMelee()">平砍</button></div>';
+            if (monster.skillTargets && monster.skillTargets.length > 0) {
+                monster.skillTargets.forEach(s => {
+                    html += `<div class="mb-2"><button class="btn btn-sm btn-outline-primary" onclick="attackMonsterSkill(${s.id})">${s.name} (MP${s.mpCost})</button></div>`;
+                });
+            }
+            document.getElementById('skillList').innerHTML = html;
+            document.getElementById('targetList').innerHTML = '';
+            document.getElementById('skillModal').style.display = 'flex';
+            window._monsterActions = monster;
+        });
+
+        function attackMonsterMelee() { closeSkillModal(); commitTurn('attack_monster', 0, 0, 0, false); }
+        function attackMonsterSkill(skillId) { closeSkillModal(); commitTurn('attack_monster', 0, skillId, 0, false); }
+
         async function commitTurn(actionType, dice = 0, skillId = 0, targetId = 0, replaceEquipment = true, useDoubleDice = false) {
             const rollBtn = document.getElementById('rollDiceBtn');
             const skillBtn = document.getElementById('skillBtn');
             const cardBtn = document.getElementById('cardBtn');
-            rollBtn.disabled = true; if (skillBtn) skillBtn.disabled = true; if (cardBtn) cardBtn.disabled = true;
+            const attackBtn = document.getElementById('attackMonsterBtn');
+            rollBtn.disabled = true; if (skillBtn) skillBtn.disabled = true; if (cardBtn) cardBtn.disabled = true; if (attackBtn) attackBtn.disabled = true;
             try {
                 const res = await fetch(`?handler=CommitTurn&roomId=${roomId}&playerId=${currentPlayerId}&actionType=${actionType}&dice=${dice}&skillId=${skillId}&targetId=${targetId}&replaceEquipment=${replaceEquipment}&useDoubleDice=${useDoubleDice}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': csrfToken }
@@ -559,11 +585,11 @@
                     location.reload();
                 } else {
                     alert(data.error || '操作失败');
-                    rollBtn.disabled = false; if (skillBtn) skillBtn.disabled = false; if (cardBtn) cardBtn.disabled = false;
+                    rollBtn.disabled = false; if (skillBtn) skillBtn.disabled = false; if (cardBtn) cardBtn.disabled = false; if (attackBtn) attackBtn.disabled = false;
                 }
             } catch (e) {
                 console.error(e); alert('提交失败，请重试');
-                rollBtn.disabled = false; if (skillBtn) skillBtn.disabled = false; if (cardBtn) cardBtn.disabled = false;
+                rollBtn.disabled = false; if (skillBtn) skillBtn.disabled = false; if (cardBtn) cardBtn.disabled = false; if (attackBtn) attackBtn.disabled = false;
             }
         }
 

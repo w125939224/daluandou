@@ -38,5 +38,7 @@ namespace daluandou.Models
 
         // 导航属性
         public ICollection<GamePlayer> Players { get; set; } = new List<GamePlayer>();
+
+        public string? MonsterData { get; set; }
     }
 }

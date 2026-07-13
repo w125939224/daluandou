@@ -32,17 +32,68 @@ namespace daluandou.Pages
         public Dictionary<int, GameCells> BoardEvents { get; set; } = new();
         public List<GameLogs> RecentLogs { get; set; } = new();
 
+        // 怪物实例：格子索引 -> 当前怪物状态
+        public Dictionary<int, MonsterInstance> Monsters { get; set; } = new();
+
         private List<Magic> Skills = new();
+        private List<Monster> MonsterTemplates = new(); // 从数据库加载的模板
+
+        // 加载怪物实例
+        private async Task LoadMonsters()
+        {
+            if (!string.IsNullOrEmpty(Room?.MonsterData))
+            {
+                try
+                {
+                    Monsters = JsonSerializer.Deserialize<Dictionary<int, MonsterInstance>>(Room.MonsterData)
+                               ?? new Dictionary<int, MonsterInstance>();
+                }
+                catch { Monsters = new(); }
+            }
+        }
+
+        // 保存怪物实例到数据库
+        private async Task SaveMonsters()
+        {
+            Room.MonsterData = JsonSerializer.Serialize(Monsters);
+            _context.Update(Room);
+            await _context.SaveChangesAsync();
+        }
 
         private async Task InitBoardEvents(int roomId)
         {
             var allEvents = await _context.GameCells.ToListAsync();
-            if (allEvents.Any() && Room != null)
+            MonsterTemplates = await _context.Monsters.ToListAsync();
+            if (!allEvents.Any() || Room == null) return;
+
+            var rng = new Random(roomId);
+            bool needSave = false;
+            for (int i = 0; i < Room.MaxCount; i++)
             {
-                var rng = new Random(roomId);
-                for (int i = 0; i < Room.MaxCount; i++)
-                    BoardEvents[i] = allEvents[rng.Next(allEvents.Count)];
+                var evt = allEvents[rng.Next(allEvents.Count)];
+                BoardEvents[i] = evt;
+                if (evt.EventType == "Monster")
+                {
+                    if (!Monsters.ContainsKey(i) && MonsterTemplates.Any())
+                    {
+                        var template = MonsterTemplates[rng.Next(MonsterTemplates.Count)];
+                        Monsters[i] = new MonsterInstance
+                        {
+                            MonsterId = template.Id,
+                            Name = template.Name,
+                            Attack = template.Attack,
+                            Defense = template.Defense,
+                            MaxHP = template.HP,
+                            CurrentHP = template.HP,
+                            RewardGold = template.RewardGold,
+                            RewardEquipmentId = template.RewardEquipmentId,
+                            RewardMagicId = template.RewardMagicId
+                        };
+                        needSave = true;
+                    }
+                }
             }
+            if (needSave) await SaveMonsters();
         }
 
         public async Task<IActionResult> OnGetAsync(int roomId, int playerId)
@@ -65,11 +116,12 @@ namespace daluandou.Pages
                 .ToListAsync();
 
             Skills = await _context.Magics.ToListAsync();
+            await LoadMonsters();
             await InitBoardEvents(roomId);
             return Page();
         }
 
-        // 获取可用行动（技能、平砍、卡牌）
+        // 获取可用行动（技能、平砍、卡牌、怪物信息）
         public async Task<IActionResult> OnPostGetActions(int roomId, int playerId)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -128,12 +180,32 @@ namespace daluandou.Pages
             if (cards.ContainsKey("Backward1") && cards["Backward1"] > 0)
                 availableCards.Add(new { type = "Backward1", name = "后退卡", description = "立即后退1格" });
 
+            // 怪物信息
+            object monsterInfo = null;
+            if (Monsters.TryGetValue(player.CurrentPosition, out var monster) && monster.CurrentHP > 0)
+            {
+                monsterInfo = new
+                {
+                    name = monster.Name,
+                    hp = monster.CurrentHP,
+                    maxHp = monster.MaxHP,
+                    attack = monster.Attack,
+                    defense = monster.Defense,
+                    meleeAvailable = true,
+                    skillTargets = learnedSkills
+                        .Where(s => player.MP >= s.MpCost)
+                        .Select(s => new { s.Id, s.Name, s.MpCost, s.EffectType, s.BaseValue })
+                        .ToList()
+                };
+            }
+
             return new JsonResult(new
             {
                 canMove = true,
                 skills = availableSkills,
                 melee = new { name = "平砍", available = meleeTargets.Count > 0, targets = meleeTargets },
-                cards = availableCards
+                cards = availableCards,
+                monster = monsterInfo
             });
         }
 
@@ -197,7 +269,7 @@ namespace daluandou.Pages
             });
         }
 
-        // 提交回合（移动/普攻/技能）
+        // 提交回合（移动/普攻/技能/攻击怪物）
         public async Task<IActionResult> OnPostCommitTurn(int roomId, int playerId, string actionType, int dice = 0, int skillId = 0, int targetId = 0, bool replaceEquipment = true, bool useDoubleDice = false)
         {
             var room = await _context.GameRooms.FindAsync(roomId);
@@ -205,6 +277,7 @@ namespace daluandou.Pages
                 return new JsonResult(new { error = "游戏未进行" });
 
             Room = room;
+            await LoadMonsters();
             await InitBoardEvents(roomId);
 
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -216,6 +289,7 @@ namespace daluandou.Pages
                 return new JsonResult(new { error = "无法行动" });
 
             Skills = await _context.Magics.ToListAsync();
+            int? uidLog = int.TryParse(player.UserId, out var userId) ? userId : null;
 
             if (actionType == "move")
             {
@@ -291,6 +365,88 @@ namespace daluandou.Pages
                 });
                 CheckDeath(target, room);
             }
+            else if (actionType == "attack_monster")
+            {
+                if (!Monsters.TryGetValue(player.CurrentPosition, out var monster) || monster.CurrentHP <= 0)
+                    return new JsonResult(new { error = "这里没有怪物" });
+
+                string actionDesc = "";
+                if (skillId > 0)
+                {
+                    var learnedIds = ParseLearnedSkillIds(player.LearnedMagicIds);
+                    if (!learnedIds.Contains(skillId))
+                        return new JsonResult(new { error = "你还没有学会此技能" });
+                    var skill = Skills.FirstOrDefault(s => s.Id == skillId);
+                    if (skill == null) return new JsonResult(new { error = "技能不存在" });
+                    if (player.MP < skill.MpCost) return new JsonResult(new { error = "魔法不足" });
+
+                    player.MP -= skill.MpCost;
+                    if (skill.EffectType == "Fixed")
+                    {
+                        int dmg = Math.Abs(skill.BaseValue);
+                        if (skill.BaseValue > 0) monster.CurrentHP -= dmg;
+                        else return new JsonResult(new { error = "治疗对怪物无效" });
+                        actionDesc = $"{player.PlayerName} 使用 {skill.Name} 攻击了 {monster.Name}，造成 {dmg} 点伤害。";
+                    }
+                    else
+                    {
+                        int dmg = Math.Max(1, (player.DC - monster.Defense) * Math.Abs(skill.BaseValue));
+                        monster.CurrentHP -= dmg;
+                        actionDesc = $"{player.PlayerName} 使用 {skill.Name} 攻击了 {monster.Name}，造成 {dmg} 点伤害。";
+                    }
+                }
+                else // 平砍
+                {
+                    int damage = Math.Max(1, player.DC - monster.Defense);
+                    monster.CurrentHP -= damage;
+                    actionDesc = $"{player.PlayerName} 平砍了 {monster.Name}，造成 {damage} 点伤害。";
+                }
+
+                _context.GameLogs.Add(new GameLogs
+                {
+                    GameRoomId = room.Id,
+                    PlayerId = uidLog,
+                    PlayerName = player.PlayerName,
+                    LogType = "MonsterAttack",
+                    Message = actionDesc,
+                    CreatedTime = DateTime.UtcNow
+                });
+
+                if (monster.CurrentHP <= 0)
+                {
+                    await GrantMonsterReward(player, monster, room);
+                    Monsters.Remove(player.CurrentPosition);
+                }
+                else
+                {
+                    // 怪物反击
+                    int monsterDamage = Math.Max(1, monster.Attack - player.AC);
+                    player.HP -= monsterDamage;
+                    _context.GameLogs.Add(new GameLogs
+                    {
+                        GameRoomId = room.Id,
+                        PlayerId = uidLog,
+                        PlayerName = player.PlayerName,
+                        LogType = "MonsterCounter",
+                        Message = $"{monster.Name} 反击了 {player.PlayerName}，造成 {monsterDamage} 点伤害。",
+                        CreatedTime = DateTime.UtcNow
+                    });
+                    if (player.HP <= 0)
+                    {
+                        player.HP = player.HPMAX; player.MP = player.MPMAX; player.CurrentPosition = 1;
+                        _context.GameLogs.Add(new GameLogs
+                        {
+                            GameRoomId = room.Id,
+                            PlayerId = uidLog,
+                            PlayerName = player.PlayerName,
+                            LogType = "Death",
+                            Message = $"{player.PlayerName} 被怪物击败，返回起点。",
+                            CreatedTime = DateTime.UtcNow
+                        });
+                    }
+                }
+                await SaveMonsters();
+            }
             else return new JsonResult(new { error = "无效行动类型" });
 
             if (player.HP <= 0)
@@ -317,7 +473,45 @@ namespace daluandou.Pages
             return new JsonResult(new { success = true });
         }
 
-        // 使用卡牌（禁锢咒、前进/后退卡）
+        private async Task GrantMonsterReward(GamePlayer player, MonsterInstance monster, GameRooms room)
+        {
+            player.Gold += monster.RewardGold;
+            string rewardMsg = $"获得 {monster.RewardGold} 金币";
+            if (monster.RewardEquipmentId.HasValue)
+            {
+                var cell = await _context.GameCells.FindAsync(monster.RewardEquipmentId.Value);
+                if (cell != null && IsEquipmentSlot(cell.EventType))
+                {
+                    await ApplyEquipmentReplace(player, cell);
+                    rewardMsg += $" 和装备 {cell.EventName}";
+                }
+            }
+            if (monster.RewardMagicId.HasValue)
+            {
+                var magic = await _context.Magics.FindAsync(monster.RewardMagicId.Value);
+                if (magic != null)
+                {
+                    var learned = ParseLearnedSkillIds(player.LearnedMagicIds);
+                    if (!learned.Contains(magic.Id))
+                    {
+                        learned.Add(magic.Id);
+                        player.LearnedMagicIds = string.Join(",", learned);
+                        rewardMsg += $" 学会技能 {magic.Name}";
+                    }
+                }
+            }
+            _context.GameLogs.Add(new GameLogs
+            {
+                GameRoomId = room.Id,
+                PlayerId = int.TryParse(player.UserId, out var uid) ? uid : null,
+                PlayerName = player.PlayerName,
+                LogType = "Monster",
+                Message = $"击败了 {monster.Name}，{rewardMsg}。",
+                CreatedTime = DateTime.UtcNow
+            });
+        }
+
+        // 使用卡牌（不变）
         public async Task<IActionResult> OnPostUseCard(int roomId, int playerId, string cardType, int targetId = 0)
         {
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -377,7 +571,7 @@ namespace daluandou.Pages
             return new JsonResult(new { success = true });
         }
 
-        // 获取随机商店物品（每次踩中商店时随机抽取 3~5 件）
+        // 商店相关（不变）
         public async Task<IActionResult> OnPostGetShopItems(int roomId)
         {
             var allItems = await _context.ShopItems.ToListAsync();
@@ -394,7 +588,6 @@ namespace daluandou.Pages
             }));
         }
 
-        // 购买物品
         public async Task<IActionResult> OnPostBuyItem(int roomId, int playerId, int shopItemId)
         {
             var player = await _context.GamePlayers.FindAsync(playerId);
@@ -455,7 +648,7 @@ namespace daluandou.Pages
             return new JsonResult(new { success = true, gold = player.Gold });
         }
 
-        // 辅助方法：消耗卡牌
+        // 辅助方法（保持不变）
         private void ConsumeCard(GamePlayer player, string cardType)
         {
             var cards = ParseCards(player.CardsJson);
@@ -873,6 +1066,19 @@ namespace daluandou.Pages
             int maxCount = room.MaxCount ?? 100;
             int newPos = ((bot.CurrentPosition) - 1 + dice) % maxCount + 1;
             await ExecutePlayerTurn(room, bot, dice, newPos, true);
+        }
+
+        public class MonsterInstance
+        {
+            public int MonsterId { get; set; }
+            public string Name { get; set; }
+            public int Attack { get; set; }
+            public int Defense { get; set; }
+            public int MaxHP { get; set; }
+            public int CurrentHP { get; set; }
+            public int RewardGold { get; set; }
+            public int? RewardEquipmentId { get; set; }
+            public int? RewardMagicId { get; set; }
         }
     }
 }
