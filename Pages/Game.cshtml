@@ -256,7 +256,7 @@
                 <button type="button" class="btn btn-primary w-100 mb-2" id="rollDiceBtn">🎲 摇骰子</button>
                 <button type="button" class="btn btn-info w-100 mb-2" id="skillBtn">✨ 技能/攻击</button>
                 <button type="button" class="btn btn-warning w-100 mb-2" id="cardBtn">🃏 卡牌</button>
-                @if (Model.Monsters.ContainsKey(Model.CurrentPlayer.CurrentPosition) && Model.CurrentPlayer.HP > 0)
+                @if (Model.Monsters.TryGetValue(Model.CurrentPlayer.CurrentPosition, out var monsterBtn) && monsterBtn.CurrentHP > 0 && Model.CurrentPlayer.HP > 0)
                 {
                     <button type="button" class="btn btn-danger w-100" id="attackMonsterBtn">⚔️ 攻击怪物</button>
                 }
@@ -274,7 +274,6 @@
     </div>
 </div>
 
-<!-- AntiForgery Token -->
 @Html.AntiForgeryToken()
 
 <!-- 技能弹窗 -->

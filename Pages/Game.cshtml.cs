@@ -1017,6 +1017,10 @@ namespace daluandou.Pages
                     return "";
                 case "Shop":
                     return "你进入了商店。";
+                case "Monster":
+                    if (Monsters.TryGetValue(player.CurrentPosition, out var monster) && monster.CurrentHP > 0)
+                        return $"遭遇了 {monster.Name}！";
+                    return "遭遇了怪物";
                 default:
                     return "";
             }
